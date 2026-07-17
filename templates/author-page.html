@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ section.title }} | {{ config.title }}{% endblock %}
+{% block content %}
+<article class="author-profile">
+    <h1>{{ section.title }}</h1>
+    <div class="content-body">
+        {{ section.content | safe }}
+    </div>
+
+    <h2>作品</h2>
+    <ul class="author-works">
+    {% for article in section.pages %}
+        <li><a href="{{ article.permalink }}">{{ article.title }}</a></li>
+    {% endfor %}
+    {% for sub_path in section.subsections %}
+        {% set sub = get_section(path=sub_path) %}
+        <li><a href="{{ sub.permalink }}">{{ sub.title }}</a></li>
+    {% endfor %}
+    </ul>
+</article>
+{% endblock %}

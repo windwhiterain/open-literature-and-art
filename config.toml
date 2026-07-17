@@ -1,0 +1,12 @@
+base_url = "https://windwhiterain.github.io/open-literature-and-art"
+title = "开源文艺"
+description = "开源共建的小说、散文与创作档案馆"
+default_language = "zh"
+compile_sass = false
+build_search_index = false
+ignored_content = ["**/body.md"]
+
+[slugify]
+paths = "on"
+taxonomies = "on"
+anchors = "on"

@@ -1,0 +1,6 @@
+.mimocode/
+public/
+.marmite-server.pid
+templates_backup/
+.mimocode/
+content/**/index.md

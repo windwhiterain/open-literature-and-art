@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ section.title }} | {{ config.title }}{% endblock %}
+{% block content %}
+<h1>{{ section.title }}</h1>
+
+<div class="meta">
+{% if section.extra.date %}<time datetime="{{ section.extra.date }}">{{ section.extra.date }}</time>{% endif %}
+{% if section.extra.author %}
+{% set_global author_link = "" %}
+{% set root_sec = get_section(path="_index.md") %}
+{% for sub_path in root_sec.subsections %}
+  {% set author_sec = get_section(path=sub_path) %}{% if author_sec.title == section.extra.author %}{% set_global author_link = author_sec.permalink %}{% endif %}
+{% endfor %}
+{% if author_link %}
+<span class="author">作者: <a href="{{ author_link }}">{{ section.extra.author }}</a></span>
+{% else %}
+<span class="author">作者: {{ section.extra.author }}</span>
+{% endif %}
+{% endif %}
+</div>
+
+{% if section.extra.summary %}
+<div class="article-summary">{{ section.extra.summary }}</div>
+{% endif %}
+
+{% if section.content %}
+<div class="content-body">
+    {{ section.content | safe }}
+</div>
+{% endif %}
+
+{% if section.pages %}
+<nav class="chapter-list">
+    <h2>目录</h2>
+    <ol>
+    {% for page in section.pages %}
+        <li><a href="{{ page.permalink }}">{{ page.title }}</a></li>
+    {% endfor %}
+    </ol>
+</nav>
+{% endif %}
+{% endblock %}

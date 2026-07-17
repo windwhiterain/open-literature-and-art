@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ config.title }}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ get_url(path='style.css') }}">
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="{{ get_url(path='@/_index.md') }}" class="site-name">{{ config.title }}</a>
+            <span class="tagline">{{ config.description }}</span>
+            <ul class="nav-links">
+                <li><a href="{{ get_url(path='@/_index.md') }}">文章</a></li>
+                <li><a href="{{ get_url(path='@/authors/_index.md') }}">作者</a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

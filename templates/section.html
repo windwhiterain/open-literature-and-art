@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ section.title }} | {{ config.title }}{% endblock %}
+{% block content %}
+
+{% if section.path == "/" %}
+
+{% set total_pages = 0 %}
+{% for sub_path in section.subsections %}
+  {% set author = get_section(path=sub_path) %}
+  {% if author.title != "作者" %}
+    {% set page_count = author.pages | length %}
+    {% set sub_count = author.subsections | length %}
+    {% set_global total_pages = total_pages + page_count + sub_count %}
+  {% endif %}
+{% endfor %}
+
+<p class="subtitle">共 {{ total_pages }} 篇</p>
+
+<div id="card-list">
+{% for sub_path in section.subsections %}
+  {% set author = get_section(path=sub_path) %}
+  {% if author.title != "作者" %}
+  {% for page in author.pages %}
+  <article class="article-card">
+    <h2><a href="{{ page.permalink }}">{{ page.title }}</a></h2>
+    <div class="meta">
+    {% if page.extra.date %}<time datetime="{{ page.extra.date }}">{{ page.extra.date }}</time>{% endif %}
+    <span class="author">作者: <a href="{{ author.permalink }}">{{ author.title }}</a></span>
+    </div>
+    <p class="excerpt">
+      {% if page.extra.summary %}{{ page.extra.summary | truncate(length=200) }}{% else %}{{ page.content | striptags | truncate(length=200) }}{% endif %}
+    </p>
+  </article>
+  {% endfor %}
+  {% for sub_path2 in author.subsections %}
+    {% set sub = get_section(path=sub_path2) %}
+    <article class="article-card">
+      <h2><a href="{{ sub.permalink }}">{{ sub.title }}</a></h2>
+      <div class="meta">
+      {% if sub.pages | length > 0 %}
+      <span class="author">共 {{ sub.pages | length }} 章</span>
+      {% endif %}
+      {% if sub.extra.date %}<time datetime="{{ sub.extra.date }}">{{ sub.extra.date }}</time>{% endif %}
+      <span class="author">作者: <a href="{{ author.permalink }}">{{ author.title }}</a></span>
+      </div>
+      {% if sub.extra.summary %}
+      <p class="excerpt">{{ sub.extra.summary | truncate(length=200) }}</p>
+      {% endif %}
+    </article>
+  {% endfor %}
+  {% endif %}
+{% endfor %}
+</div>
+
+{% elif section.title == "作者" %}
+
+{% set root = get_section(path="_index.md") %}
+{% set author_count = 0 %}
+{% for sub_path in root.subsections %}
+  {% set author = get_section(path=sub_path) %}
+  {% if author.title != "作者" %}
+    {% set_global author_count = author_count + 1 %}
+  {% endif %}
+{% endfor %}
+
+<p class="subtitle">共 {{ author_count }} 人</p>
+
+<div id="card-list">
+{% for sub_path in root.subsections %}
+  {% set author = get_section(path=sub_path) %}
+  {% if author.title != "作者" %}
+  {% set page_count = author.pages | length %}
+  {% set sub_count = author.subsections | length %}
+  <article class="article-card">
+    <h2><a href="{{ author.permalink }}">{{ author.title }}</a></h2>
+    <div class="meta">
+      <span class="author">共 {{ page_count + sub_count }} 篇</span>
+    </div>
+    {% if author.content %}
+    <p class="excerpt">{{ author.content | striptags | truncate(length=200) }}</p>
+    {% endif %}
+  </article>
+  {% endif %}
+{% endfor %}
+</div>
+
+{% endif %}
+
+<div class="shuffle-bar"><button id="shuffle-btn">换一批</button></div>
+<script src="{{ get_url(path='shuffle.js') }}"></script>
+{% endblock %}
