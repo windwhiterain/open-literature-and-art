@@ -12,39 +12,10 @@ NC='\033[0m'
 
 say() { printf '%b\n' "$1"; }
 
-detect_platform() {
-  local os arch
-  os=$(uname -s)
-  arch=$(uname -m)
-
-  case "$os" in
-    Linux)  os="linux" ;;
-    Darwin) os="macos" ;;
-    *)
-      printf '%b' "${RED}Unsupported OS: $os${NC}\n"
-      exit 1
-      ;;
-  esac
-
-  case "$arch" in
-    x86_64|amd64) arch="x86_64" ;;
-    aarch64|arm64) arch="arm64" ;;
-    *)
-      printf '%b' "${RED}Unsupported architecture: $arch${NC}\n"
-      exit 1
-      ;;
-  esac
-
-  echo "${BINARY}-${os}-${arch}"
-}
-
 main() {
   say "${GREEN}==> Installing ${BINARY}...${NC}"
 
-  local asset
-  asset=$(detect_platform)
-
-  local url="https://github.com/${REPO}/releases/download/${TAG}/${asset}"
+  local url="https://github.com/${REPO}/releases/download/${TAG}/${BINARY}"
   say "    Downloading ${url}"
 
   mkdir -p "${INSTALL_DIR}"

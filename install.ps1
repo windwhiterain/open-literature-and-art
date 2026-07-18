@@ -14,10 +14,8 @@ function Write-Color($Text, $Color) {
   Write-Host $Text -ForegroundColor $Color
 }
 
-$arch = if ([Environment]::Is64BitOperatingSystem) { "x86_64" } else { "x86" }
-$asset = "${Binary}-windows-${arch}.exe"
-
-Write-Color "==> Installing ${Binary} for Windows ${arch}..." Green
+Write-Color "==> Installing ${Binary} for Windows..." Green
+$asset = "${Binary}.exe"
 
 $url = "https://github.com/${Repo}/releases/download/${Tag}/${asset}"
 Write-Host "    Downloading ${url}"
