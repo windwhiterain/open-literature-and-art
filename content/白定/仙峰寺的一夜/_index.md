@@ -5,5 +5,4 @@ sort_by = "weight"
 template = "work-section.html"
 page_template = "page.html"
 [extra]
-author = "白定"
 +++

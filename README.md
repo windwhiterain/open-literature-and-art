@@ -4,6 +4,7 @@
 
 开源共建的小说、散文与创作档案馆。
 
+
 [网页：https://windwhiterain.github.io/open-literature-and-art/](https://windwhiterain.github.io/open-literature-and-art/)
 
 ## 协议
@@ -39,44 +40,43 @@ template = "author-page.html"
 写一段作者简介放在这里。
 ```
 
-然后在这个文件夹里新建文章即可。
-
 ### 新建一篇文章
 
-在作者的文件夹下创建一个与文章同名的目录：
+在作者文件夹下直接放一个 `.md` 文件，开头用 `+++` 括起来的区域放元数据：
+
+```
+content/白定/文章名.md
+```
+
+```markdown
++++
+title = "文章标题"
+[extra]
+date = "2026-07"            # 可选
+summary = "几句话摘要"        # 可选，卡片和文章页开头显示
++++
+
+在这里写正文。
+```
+
+如果文章有配图，建一个同名目录，图片放进去，文章写成 `index.md`：
 
 ```
 content/白定/文章名/
-├── meta.toml      # 元数据（title, author, date, summary, draft）
-├── body.md        # 纯正文 markdown
-└── image.jpg      # 图片等资源（可选）
+├── index.md
+├── 插图.jpg
+└── 封面.png
 ```
-
-`meta.toml` 内容：
-
-```toml
-title = "文章标题"
-[extra]
-author = "作者名"
-date = "2024-06"          # 可选，纯文本："2024上半年"、"2024-06"、"2024-06-01" 都行
-summary = "几句话摘要"      # 可选，卡片和文章页开头显示，可以用 AI 生成
-```
-
-正文写入 `body.md`。图片用 `![描述](image.jpg)` 引用。
 
 ### 新建一部连载
 
-在作者的文件夹下创建一个目录，每章一个子目录：
+在作者文件夹下创建一个目录，放 `_index.md` 作为作品首页，每章一个 `.md` 文件：
 
 ```
 content/白定/我的长篇/
-├── _index.md              # 作品首页
-├── 第一章/
-│   ├── meta.toml          # 章节元数据
-│   └── body.md            # 章节正文
-├── 第二章/
-│   ├── meta.toml
-│   └── body.md
+├── _index.md
+├── 第一章.md
+├── 第二章.md
 ```
 
 `_index.md` 内容：
@@ -87,44 +87,57 @@ title = "作品名"
 sort_by = "weight"
 template = "work-section.html"
 [extra]
-author = "作者名"
 date = "2024-06"        # 可选
-summary = "作品摘要"      # 可选，卡片和作品首页显示
+summary = "作品摘要"      # 可选
 +++
 ```
 
-每章 `meta.toml`（author 和 summary 在 `_index.md` 上定义）：
+每章 `.md` 内容：
 
-```toml
+```markdown
++++
 title = "第一章"
 weight = 1
-```
+[extra]
+date = "2024-06"
++++
 
-正文写入 `body.md`。
+第一章正文。
+```
 
 ### 草稿
 
-不想发布的文章，在 `meta.toml` 中添加 `draft = true`：
+不想发布的文章，在 frontmatter 中添加 `draft = true`：
 
 ```toml
++++
 title = "未完成"
 draft = true
-[extra]
-author = "作者名"
++++
 ```
 
 ---
 
 ## 本地预览
 
-需要安装 [Zola](https://www.getzola.org/) 和 Python 3：
+安装 [Zola](https://www.getzola.org/)：
 
 ```bash
-python scripts/serve.py
+zola serve
 ```
 
-构建发布：
+## 安装小助手 soil
+
+**Linux / macOS：**
 
 ```bash
-python scripts/build.py
+curl -fsSL https://raw.githubusercontent.com/windwhiterain/open-literature-and-art/master/install.sh | bash
 ```
+
+**Windows (PowerShell)：**
+
+```powershell
+irm https://raw.githubusercontent.com/windwhiterain/open-literature-and-art/master/install.ps1 | iex
+```
+
+安装完成后运行 `soil --help` 查看用法。

@@ -27,7 +27,7 @@ jobs:
           tool: zola
 
       - name: Build site
-        run: python scripts/build.py
+        run: zola build
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
