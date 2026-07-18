@@ -4,6 +4,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 $Repo = "windwhiterain/open-literature-and-art"
 $Tag  = "nightly"
 $Binary = "soil"

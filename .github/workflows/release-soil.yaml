@@ -46,11 +46,16 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
         working-directory: soil
 
+      - name: Rename binary
+        shell: bash
+        run: mv target/${{ matrix.target }}/release/${{ matrix.binary }} target/${{ matrix.target }}/release/${{ matrix.artifact }}
+        working-directory: soil
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: soil/target/${{ matrix.target }}/release/${{ matrix.binary }}
+          path: soil/target/${{ matrix.target }}/release/${{ matrix.artifact }}
 
   release:
     needs: build
