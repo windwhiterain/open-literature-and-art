@@ -1,5 +1,6 @@
 param(
-  [string]$InstallDir = "$env:LOCALAPPDATA\soil"
+  [string]$InstallDir = "$env:LOCALAPPDATA\soil",
+  [switch]$Uninstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,6 +13,27 @@ $Binary = "soil"
 
 function Write-Color($Text, $Color) {
   Write-Host $Text -ForegroundColor $Color
+}
+
+if ($Uninstall) {
+  Write-Color "==> Uninstalling ${Binary}..." Green
+
+  if (Test-Path $InstallDir) {
+    Remove-Item -Recurse -Force $InstallDir
+    Write-Color "==> Removed ${InstallDir}" Green
+  } else {
+    Write-Color "==> ${InstallDir} not found, nothing to remove." Yellow
+  }
+
+  $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  if ($currentPath -and ($currentPath -split ";" -contains $InstallDir)) {
+    $newPath = ($currentPath -split ";" | Where-Object { $_ -ne $InstallDir }) -join ";"
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+    Write-Color "==> Removed ${InstallDir} from user PATH." Green
+  }
+
+  Write-Color "==> Uninstall complete." Green
+  return
 }
 
 Write-Color "==> Installing ${Binary} for Windows..." Green

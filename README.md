@@ -4,7 +4,6 @@
 
 开源共建的小说、散文与创作档案馆。
 
-
 [网页：https://windwhiterain.github.io/open-literature-and-art/](https://windwhiterain.github.io/open-literature-and-art/)
 
 ## 协议
@@ -141,3 +140,16 @@ irm https://raw.githubusercontent.com/windwhiterain/open-literature-and-art/mast
 ```
 
 安装完成后运行 `soil --help` 查看用法。
+
+**卸载：**
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/windwhiterain/open-literature-and-art/master/install.sh | bash -s uninstall
+```
+
+```powershell
+# Windows
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\soil"
+```
+删除后将用户环境变量 PATH 中对应的条目也移除即可。
