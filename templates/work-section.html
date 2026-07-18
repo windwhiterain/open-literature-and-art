@@ -1,22 +1,13 @@
 {% extends "base.html" %}
 {% block title %}{{ section.title }} | {{ config.title }}{% endblock %}
 {% block content %}
+{% set components = section.relative_path | split(pat="/") %}
+{% set author_name = components | first %}
 <h1>{{ section.title }}</h1>
 
 <div class="meta">
 {% if section.extra.date %}<time datetime="{{ section.extra.date }}">{{ section.extra.date }}</time>{% endif %}
-{% if section.extra.author %}
-{% set_global author_link = "" %}
-{% set root_sec = get_section(path="_index.md") %}
-{% for sub_path in root_sec.subsections %}
-  {% set author_sec = get_section(path=sub_path) %}{% if author_sec.title == section.extra.author %}{% set_global author_link = author_sec.permalink %}{% endif %}
-{% endfor %}
-{% if author_link %}
-<span class="author">作者: <a href="{{ author_link }}">{{ section.extra.author }}</a></span>
-{% else %}
-<span class="author">作者: {{ section.extra.author }}</span>
-{% endif %}
-{% endif %}
+<span class="author">作者: <a href="{{ get_url(path="@/" ~ author_name ~ "/_index.md") }}">{{ author_name }}</a></span>
 </div>
 
 {% if section.extra.summary %}
