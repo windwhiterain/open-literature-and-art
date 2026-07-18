@@ -6,7 +6,8 @@ use std::path::PathBuf;
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub author: String,
-    pub github_token: String,
+    #[serde(default)]
+    pub github_account: String,
 }
 
 fn config_dir() -> PathBuf {
@@ -15,7 +16,7 @@ fn config_dir() -> PathBuf {
         .join("soil")
 }
 
-fn config_path() -> PathBuf {
+pub fn config_path() -> PathBuf {
     config_dir().join("config.toml")
 }
 
@@ -26,7 +27,23 @@ pub fn load() -> anyhow::Result<Config> {
     }
     let content = fs::read_to_string(&path)
         .with_context(|| format!("Failed to read config at {}", path.display()))?;
-    toml::from_str(&content).context("Failed to parse config")
+    let mut config: Config = toml::from_str(&content).context("Failed to parse config")?;
+    if config.github_account.is_empty() {
+        config.github_account = std::env::var("GITHUB_USER")
+            .or_else(|_| std::env::var("GITHUB_ACTOR"))
+            .unwrap_or_default();
+    }
+    Ok(config)
+}
+
+pub fn is_initialized() -> bool {
+    config_path().exists()
+}
+
+fn env_github_account() -> String {
+    std::env::var("GITHUB_USER")
+        .or_else(|_| std::env::var("GITHUB_ACTOR"))
+        .unwrap_or_default()
 }
 
 pub fn wizard() -> anyhow::Result<Config> {
@@ -36,13 +53,15 @@ pub fn wizard() -> anyhow::Result<Config> {
         .with_prompt("Your pen name")
         .interact_text()?;
 
-    let github_token: String = dialoguer::Password::new()
-        .with_prompt("GitHub personal access token (for PR submission)")
-        .interact()?;
+    let default_account = env_github_account();
+    let github_account: String = dialoguer::Input::new()
+        .with_prompt("GitHub account")
+        .default(default_account)
+        .interact_text()?;
 
     let config = Config {
         author,
-        github_token,
+        github_account,
     };
 
     save(&config)?;

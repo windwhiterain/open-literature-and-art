@@ -2,3 +2,4 @@ title = "连载"
 sort_by = "weight"
 [extra]
 date = "2026-07"
+template = "work-section.html"

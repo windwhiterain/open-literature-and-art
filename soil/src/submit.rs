@@ -6,7 +6,7 @@ use crate::build;
 pub fn run(
     source: Option<&str>,
     author: &str,
-    token: &str,
+    github_account: &str,
     message: Option<&str>,
     project_root: &std::path::Path,
 ) -> anyhow::Result<()> {
@@ -63,9 +63,7 @@ pub fn run(
         .args(["-C", project_root.to_str().unwrap(), "add", &author_dir])
         .status()
         .context("git add failed")?;
-    if !status.success() {
-        anyhow::bail!("git add failed");
-    }
+    anyhow::ensure!(status.success(), "git add failed");
 
     let status = Command::new("git")
         .args([
@@ -77,143 +75,88 @@ pub fn run(
         ])
         .status()
         .context("git commit failed")?;
-    if !status.success() {
-        anyhow::bail!("git commit failed");
-    }
+    anyhow::ensure!(status.success(), "git commit failed");
 
-    // Push to fork
-    // Fork management via GitHub API
-    let user = github_username(token)?;
+    // Ensure fork exists and push.
     let (owner, repo) = parse_repo_owner();
+    ensure_fork(project_root, &owner, &repo, github_account)?;
+    push_to_fork(project_root)?;
 
-    ensure_fork(token, &owner, &repo, &user)?;
+    // Create PR via gh CLI.
+    let status = Command::new("gh")
+        .args([
+            "pr", "create",
+            "--title", commit_msg,
+            "--body", &format!("投稿 by {}", author),
+            "--base", "master",
+            "--head", &format!("{}:master", github_account),
+        ])
+        .current_dir(project_root)
+        .status()
+        .context("gh pr create failed. Is the GitHub CLI installed and authenticated?")?;
+    anyhow::ensure!(status.success(), "gh pr create failed");
 
-    let fork_url = format!("https://{}:{}@github.com/{}/{}.git", user, token, user, repo);
+    println!("PR created.");
+    Ok(())
+}
 
-    // Add or update fork remote
-    let remote_exists = Command::new("git")
+fn ensure_fork(
+    project_root: &std::path::Path,
+    owner: &str,
+    repo: &str,
+    account: &str,
+) -> anyhow::Result<()> {
+    // If the fork remote already exists, we're done.
+    if Command::new("git")
         .args(["-C", project_root.to_str().unwrap(), "remote", "get-url", "soil-fork"])
         .output()
-        .is_ok();
-
-    if remote_exists {
+        .is_ok()
+    {
+        // Update the remote in case fork URL changed.
+        let fork_url = github_remote_url(account, repo);
         Command::new("git")
-            .args([
-                "-C",
-                project_root.to_str().unwrap(),
-                "remote",
-                "set-url",
-                "soil-fork",
-                &fork_url,
-            ])
+            .args(["-C", project_root.to_str().unwrap(), "remote", "set-url", "soil-fork", &fork_url])
             .status()
             .context("Failed to update soil-fork remote")?;
-    } else {
-        Command::new("git")
-            .args([
-                "-C",
-                project_root.to_str().unwrap(),
-                "remote",
-                "add",
-                "soil-fork",
-                &fork_url,
-            ])
-            .status()
-            .context("Failed to add soil-fork remote")?;
+        return Ok(());
     }
 
-    let status = Command::new("git")
-        .args([
-            "-C",
-            project_root.to_str().unwrap(),
-            "push",
-            "soil-fork",
-            "master",
-        ])
+    // Fork via gh CLI.
+    println!("Forking {}/{}...", owner, repo);
+    let status = Command::new("gh")
+        .args(["repo", "fork", &format!("{}/{}", owner, repo), "--clone=false"])
         .status()
-        .context("git push failed")?;
-    if !status.success() {
-        anyhow::bail!("git push failed");
-    }
+        .context("gh repo fork failed. Is the GitHub CLI installed and authenticated?")?;
+    anyhow::ensure!(status.success(), "gh repo fork failed");
 
-    // Create PR
-    let pr_resp: serde_json::Value = ureq::post(&format!(
-        "https://api.github.com/repos/{}/{}/pulls",
-        owner, repo
-    ))
-    .set("Authorization", &format!("Bearer {}", token))
-    .set("User-Agent", "soil-cli")
-    .send_json(ureq::json!({
-        "title": commit_msg,
-        "head": format!("{}:master", user),
-        "base": "master",
-        "body": format!("投稿 by {}", author),
-    }))
-    .context("Failed to create PR")?
-    .into_json()?;
-
-    let pr_url = pr_resp["html_url"].as_str().unwrap_or("unknown");
-    println!("PR created: {}", pr_url);
+    // Add fork as remote.
+    let fork_url = github_remote_url(account, repo);
+    Command::new("git")
+        .args(["-C", project_root.to_str().unwrap(), "remote", "add", "soil-fork", &fork_url])
+        .status()
+        .context("Failed to add soil-fork remote")?;
 
     Ok(())
 }
 
-fn github_username(token: &str) -> anyhow::Result<String> {
-    let resp: serde_json::Value = ureq::get("https://api.github.com/user")
-        .set("Authorization", &format!("Bearer {}", token))
-        .set("User-Agent", "soil-cli")
-        .call()
-        .context("Failed to get GitHub user. Check your token.")?
-        .into_json()?;
+fn push_to_fork(project_root: &std::path::Path) -> anyhow::Result<()> {
+    let status = Command::new("git")
+        .args(["-C", project_root.to_str().unwrap(), "push", "soil-fork", "master"])
+        .status()
+        .context("git push failed. Is your Git credential helper configured?")?;
+    anyhow::ensure!(status.success(), "git push failed");
+    Ok(())
+}
 
-    resp["login"]
-        .as_str()
-        .map(String::from)
-        .ok_or_else(|| anyhow::anyhow!("Invalid token: could not get username"))
+fn github_remote_url(account: &str, repo: &str) -> String {
+    format!("https://github.com/{}/{}.git", account, repo)
 }
 
 fn parse_repo_owner() -> (String, String) {
     let url = env!("SOIL_PROJECT_URL");
-    let url = url
-        .trim_end_matches(".git")
-        .trim_end_matches('/');
+    let url = url.trim_end_matches(".git").trim_end_matches('/');
     let parts: Vec<&str> = url.split('/').collect();
     let owner = parts.get(parts.len().saturating_sub(2)).unwrap_or(&"");
     let repo = parts.last().unwrap_or(&"");
     (owner.to_string(), repo.to_string())
-}
-
-fn ensure_fork(
-    token: &str,
-    owner: &str,
-    repo: &str,
-    user: &str,
-) -> anyhow::Result<()> {
-    let check_resp = ureq::get(&format!(
-        "https://api.github.com/repos/{}/{}",
-        user, repo
-    ))
-    .set("Authorization", &format!("Bearer {}", token))
-    .set("User-Agent", "soil-cli")
-    .call();
-
-    match check_resp {
-        Ok(resp) if resp.status() == 200 => {
-            println!("Fork exists.");
-            Ok(())
-        }
-        _ => {
-            println!("Creating fork of {}/{}...", owner, repo);
-            ureq::post(&format!(
-                "https://api.github.com/repos/{}/{}/forks",
-                owner, repo
-            ))
-            .set("Authorization", &format!("Bearer {}", token))
-            .set("User-Agent", "soil-cli")
-            .call()
-            .context("Failed to create fork")?;
-            println!("Fork created.");
-            Ok(())
-        }
-    }
 }

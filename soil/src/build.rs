@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 use crate::zola;
 
 pub fn run(project_root: &Path) -> anyhow::Result<()> {

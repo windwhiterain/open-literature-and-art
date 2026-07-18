@@ -1,4 +1,4 @@
-﻿use anyhow::Context;
+use anyhow::Context;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,6 +19,14 @@ fn strip_fences(s: &str) -> &str {
         if let Some(pos) = rest.find("\r\n+++") { return rest[..pos].trim(); }
     }
     s
+}
+
+/// Remove any `template = "..."` line so it doesn't double up across round-trips.
+fn strip_template(s: &str) -> String {
+    s.lines()
+        .filter(|l| !l.trim_start().starts_with("template "))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn today_ym() -> String {
@@ -66,6 +74,14 @@ pub fn run(source: &Path, author: &str, project_root: &Path) -> anyhow::Result<u
     let dest_base = project_root.join("content").join(author);
     let source_abs = source.canonicalize()
         .with_context(|| format!("Cannot resolve {}", source.display()))?;
+
+    // Wipe previous output so gen reflects the exact current state of the
+    // user's directory — deleted articles are removed, no stale files remain.
+    if dest_base.exists() {
+        fs::remove_dir_all(&dest_base)?;
+    }
+    fs::create_dir_all(&dest_base)?;
+
     let mut count = 0usize;
     let mut merged: HashSet<PathBuf> = HashSet::new();
 
@@ -101,6 +117,7 @@ pub fn run(source: &Path, author: &str, project_root: &Path) -> anyhow::Result<u
 
         if md_files.len() == 1 && self_md.exists() {
             let body = read_stripped(&self_md)?;
+            let toml = strip_template(toml);
             fs::write(
                 dest_dir.join("index.md"),
                 format!("+++\n{}\ntemplate = \"page.html\"\n+++\n{}", toml, body),
@@ -108,6 +125,7 @@ pub fn run(source: &Path, author: &str, project_root: &Path) -> anyhow::Result<u
             merged.insert(self_md);
             count += 1;
         } else {
+            let toml = strip_template(toml);
             fs::write(
                 dest_dir.join("_index.md"),
                 format!("+++\n{}\ntemplate = \"work-section.html\"\n+++\n", toml),
@@ -120,7 +138,7 @@ pub fn run(source: &Path, author: &str, project_root: &Path) -> anyhow::Result<u
         let path = entry.path();
         if merged.contains(path) { continue; }
         let name = path.file_name().unwrap().to_str().unwrap_or("");
-        if name.contains(".meta.") || !name.ends_with(".md") || name == "_index.md" { continue; }
+        if name.contains(".meta.") || !name.ends_with(".md") || name == "_index.md" || name == "meta.md" { continue; }
 
         let parent = path.parent().unwrap();
         let stem = &name[..name.len() - 3];
@@ -143,13 +161,10 @@ pub fn run(source: &Path, author: &str, project_root: &Path) -> anyhow::Result<u
     }
 
     let author_index = dest_base.join("_index.md");
-    if !author_index.exists() {
-        fs::create_dir_all(&dest_base)?;
-        fs::write(&author_index, format!(
-            "+++\ntitle = \"{}\"\ntemplate = \"author-page.html\"\n+++\n",
-            author
-        ))?;
-    }
+    fs::write(&author_index, format!(
+        "+++\ntitle = \"{}\"\ntemplate = \"author-page.html\"\n+++\n",
+        author
+    ))?;
 
     println!("Synced {} articles to {}", count, dest_base.display());
     Ok(count)

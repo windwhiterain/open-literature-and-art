@@ -1,1 +1,2 @@
-﻿title = "自引用目录版"
+title = "自引用目录版"
+template = "page.html"
