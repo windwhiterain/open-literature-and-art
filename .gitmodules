@@ -1,0 +1,3 @@
+[submodule "authors/test_user"]
+	path = authors/test_user
+	url = https://github.com/windwhiterain/test_user.git
