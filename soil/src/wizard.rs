@@ -3,6 +3,12 @@ use crate::github::{Auth, GitHubRepo, GitHubUser, PullRequest};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+/// When `true`, updating an existing author's submodule does NOT create a
+/// Pull Request — the scheduled auto-update workflow syncs all submodules
+/// daily. Set to `false` to restore the old behaviour where every `soil
+/// submit` for an existing author opens a PR.
+const AUTO_UPDATE_ENABLED: bool = true;
+
 // ── Prompt helpers ──
 //
 // Exit convention: Esc (or `q` / `quit` / `exit`) quits at any input prompt.
@@ -135,7 +141,9 @@ pub fn run(
 
     // Step 7: Regular users open a PR; maintainers are already done.
     // No PR when nothing changed (e.g. re-running with no new manuscript).
-    let pr_url = if is_maintainer || !made_change {
+    // When auto-update is enabled, update PRs are handled by the
+    // scheduled workflow — only new-author PRs are created by soil.
+    let pr_url = if is_maintainer || !made_change || (is_update && AUTO_UPDATE_ENABLED) {
         if !made_change {
             println!("没有新的变更，无需创建 Pull Request。");
         }
@@ -162,6 +170,12 @@ pub fn run(
         println!("║  请等待审核。审核通过后你的文稿将   ║");
         println!("║  出现在「开源文艺」网站上。         ║");
         println!("╚══════════════════════════════════════╝");
+    } else if !is_maintainer && is_update && AUTO_UPDATE_ENABLED && made_change {
+        println!("你的文稿已提交到你的 GitHub 仓库（即刻生效）。");
+        println!();
+        println!("*** 注意：你的仓库立刻更新了，但网站不会立刻显示。");
+        println!("*** 网站每天自动同步一次所有作者的内容，你的更新会在 24 小时内上线。");
+        println!("*** 如果你需要立即上线，请联系管理员或站长。");
     } else if made_change {
         println!("已直接推送到「开源文艺」上游仓库 v1 分支，无需 Pull Request。");
     } else {

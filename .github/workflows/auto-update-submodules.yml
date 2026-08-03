@@ -1,0 +1,46 @@
+name: Auto Update Submodules
+
+on:
+  schedule:
+    # Daily at 3:57 UTC (avoid round-number contention)
+    - cron: "57 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-update-submodules
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update submodules to latest remote
+        # If one submodule's remote is unreachable, don't block others
+        # — git updates them in order, so already-processed ones are synced.
+        run: git submodule update --remote || true
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --exit-code --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "自动更新子模块 ($(date +%Y-%m-%d))"
+          git push
