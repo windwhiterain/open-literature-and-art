@@ -20,7 +20,7 @@
 1. 有一个 GitHub 账号
 2. 电脑上装了 [Git](https://git-scm.com/downloads)
 
-运行 soil 后，它会一步步引导你：
+运行 `soil submit`，它会一步步引导你：
 
 1. **登录 GitHub**（在浏览器里授权一次，之后自动记住）
 2. **选择你的文稿文件夹**（存放 `.md` 文件的地方，直接回车使用当前目录）
@@ -39,7 +39,7 @@
 irm https://github.com/windwhiterain/open-literature-and-art/releases/latest/download/install.ps1 | iex
 ```
 
-完成后**重新打开终端**，运行 `soil` 即可。
+完成后**重新打开终端**，运行 `soil submit` 即可。
 
 卸载：
 
@@ -55,7 +55,7 @@ Remove-Item "$env:LOCALAPPDATA\soil" -Recurse -Force
 curl -fsSL https://github.com/windwhiterain/open-literature-and-art/releases/latest/download/install.sh | sh
 ```
 
-重新打开终端后运行 `soil`。
+重新打开终端后运行 `soil submit`。
 
 卸载：
 
@@ -66,7 +66,7 @@ rm ~/.local/bin/soil
 ## 使用方法
 
 ```sh
-soil
+soil submit
 ```
 
 按提示操作即可。几条约定：
@@ -75,10 +75,20 @@ soil
 - **复制**：`Ctrl+C` 是终端复制快捷键，不会退出程序
 - **网络不稳定**：工具会自动无限重试，网络恢复后自动继续；如果你的 GitHub 账号配置了 SSH 密钥，工具会自动改用 SSH 通道加速
 
+### 其他命令
+
+```sh
+soil               # 显示帮助
+soil preview       # 在当前目录构建网站并打开浏览器预览（不做任何 git 操作）
+soil preview 目录  # 预览指定目录（该目录需包含 authors/）
+soil meta          # 为当前目录的文稿生成 .soil.toml 元数据模板
+soil -V, --version # 显示版本号
+```
+
 ### 使用示例
 
 ```
-$ soil
+$ soil submit
 
 ═══ 文稿目录与仓库 ═══
 
