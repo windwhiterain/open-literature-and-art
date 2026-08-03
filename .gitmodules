@@ -1,3 +1,6 @@
 [submodule "authors/whiting"]
 	path = authors/whiting
 	url = https://github.com/windwhiterain/literature-and-art
+[submodule "authors/test_user"]
+	path = authors/test_user
+	url = https://github.com/windwhiterain/test_user.git
