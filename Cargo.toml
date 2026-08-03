@@ -1,0 +1,14 @@
+[package]
+name = "sitegen"
+version = "0.1.0"
+edition = "2024"
+description = "Static site generator: markdown literature -> GitHub Pages site"
+
+[dependencies]
+pulldown-cmark = "0.13"
+walkdir = "2"
+rand = "0.9"
+
+[profile.release]
+strip = true
+lto = true

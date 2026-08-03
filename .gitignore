@@ -1,1 +1,5 @@
 .mimocode/
+
+# Build output
+dist/
+/target
