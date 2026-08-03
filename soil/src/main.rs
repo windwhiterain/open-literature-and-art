@@ -14,20 +14,25 @@ const UPSTREAM_OWNER: &str = "windwhiterain";
 const UPSTREAM_REPO: &str = "open-literature-and-art";
 
 fn main() {
-    // Check for subcommands
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
-        Some("meta") => {
-            meta::run();
-            return;
+        None | Some("-h" | "--help" | "help") => print_help(),
+        Some("-V" | "--version") => println!("soil {}", env!("CARGO_PKG_VERSION")),
+        Some("submit") => run_submit(),
+        Some("preview") => wizard::run_preview(args.get(2).map(String::as_str)),
+        Some("meta") => meta::run(),
+        Some(other) => {
+            eprintln!("未知命令: {other}");
+            eprintln!();
+            print_help();
+            std::process::exit(2);
         }
-        Some("preview") => {
-            wizard::run_preview(args.get(2).map(String::as_str));
-            return;
-        }
-        _ => {}
     }
+}
 
+/// `soil submit`: the full submission wizard (login → manuscript repo →
+/// fork/direct push → submodule → PR → local preview).
+fn run_submit() {
     // Capture Ctrl+C: don't let it terminate the process (it's copy, not quit).
     if let Err(e) = ctrlc::set_handler(|| {
         CTRL_C_PRESSED.store(true, Ordering::SeqCst);
@@ -76,4 +81,18 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+fn print_help() {
+    println!("soil {} — 开源文艺投稿工具", env!("CARGO_PKG_VERSION"));
+    println!();
+    println!("用法:");
+    println!("  soil submit            提交文稿（登录 → 选择文稿仓库 → 提交 → 本地预览）");
+    println!(
+        "  soil preview [目录]    本地构建网站并在浏览器预览，不做任何 git 操作（默认当前目录）"
+    );
+    println!("  soil meta              为当前目录的文稿生成 .soil.toml 元数据模板");
+    println!("  soil help              显示本帮助");
+    println!("  soil -h, --help        显示本帮助");
+    println!("  soil -V, --version     显示版本号");
 }
