@@ -398,6 +398,7 @@ fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<GitHubRepo, String>
     // (A push with an empty delta still touches the network and can hang on
     // flaky connections; skip it entirely when everything is in sync.)
     println!("正在提交并推送文稿...");
+    git::remove_stale_submodules(&dir)?;
     git::add_all(&dir)?;
     if git::has_staged_changes(&dir) {
         git::commit("提交文稿", &dir)?;
@@ -444,11 +445,11 @@ fn parse_gitmodules(text: &str) -> Vec<(String, String)> {
             if let Some(path) = rest.strip_suffix("\"]") {
                 current = Some(path.to_string());
             }
-        } else if let Some(path) = &current {
-            if let Some(rest) = line.strip_prefix("url =") {
-                result.push((path.clone(), rest.trim().to_string()));
-                current = None;
-            }
+        } else if let Some(path) = &current
+            && let Some(rest) = line.strip_prefix("url =")
+        {
+            result.push((path.clone(), rest.trim().to_string()));
+            current = None;
         }
     }
     result
@@ -605,6 +606,7 @@ fn submit_submodule(
     }
 
     // Commit and push — only when something actually changed
+    git::remove_stale_submodules(work_dir)?;
     git::add_all(work_dir)?;
     if !git::has_staged_changes(work_dir) {
         println!("子模块已是最新，没有新的变更需要提交。");

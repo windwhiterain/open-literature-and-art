@@ -322,6 +322,73 @@ pub fn submodule_init(path: &str, repo_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Remove stale submodule remnants — submodule gitlinks or checked-out
+/// directories whose `.gitmodules` entry no longer exists. `git add -A`
+/// would otherwise re-stage them as gitlinks without a URL, and CI's
+/// `submodule update` then fails with "No url found for submodule path".
+/// Call before staging; a submodule never registered again after being
+/// removed upstream must not sneak back into a commit.
+pub fn remove_stale_submodules(repo_dir: &Path) -> Result<(), String> {
+    let registered = registered_submodule_paths(repo_dir);
+
+    // Gitlinks in the index whose .gitmodules entry is gone
+    // (core.quotePath=false keeps author names like Chinese in raw UTF-8)
+    let stage = run_git(
+        &["-c", "core.quotePath=false", "ls-files", "--stage"],
+        Some(repo_dir),
+    )?;
+    for line in stage.lines() {
+        // Format: "<mode> <sha> <stage>\t<path>"; submodules have mode 160000
+        let Some((meta, path)) = line.split_once('\t') else {
+            continue;
+        };
+        if !meta.starts_with("160000") || registered.iter().any(|p| p == path) {
+            continue;
+        }
+        run_git(&["rm", "--cached", "--", path], Some(repo_dir))?;
+        println!("已移除不再收录的子模块引用: {path}");
+    }
+
+    // Checked-out submodule directories under authors/ with no entry —
+    // deleting the gitlink alone is not enough, `git add -A` would re-add
+    // the directory (it contains a .git file) as a new gitlink.
+    let authors_dir = repo_dir.join("authors");
+    if let Ok(entries) = std::fs::read_dir(&authors_dir) {
+        for entry in entries.flatten() {
+            let rel = format!("authors/{}", entry.file_name().to_string_lossy());
+            if registered.contains(&rel) {
+                continue;
+            }
+            let dir = entry.path();
+            if dir.join(".git").exists() {
+                std::fs::remove_dir_all(&dir)
+                    .map_err(|e| format!("无法删除残留的子模块目录 {rel}: {e}"))?;
+                println!("已移除不再收录的子模块残留目录: {rel}");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Paths of submodules registered in `.gitmodules` (e.g. "authors/whiting").
+fn registered_submodule_paths(repo_dir: &Path) -> Vec<String> {
+    let Ok(out) = run_git(
+        &[
+            "config",
+            "-f",
+            ".gitmodules",
+            "--get-regexp",
+            r"^submodule\..*\.path$",
+        ],
+        Some(repo_dir),
+    ) else {
+        return Vec::new();
+    };
+    out.lines()
+        .filter_map(|line| line.split_once(' ').map(|(_, v)| v.trim().to_string()))
+        .collect()
+}
+
 /// Add all changes in the working directory.
 pub fn add_all(repo_dir: &Path) -> Result<(), String> {
     run_git(&["add", "-A"], Some(repo_dir))?;

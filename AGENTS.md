@@ -80,6 +80,7 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 - **UTF-8**：遍历 HTML 字节时必须按字符推进（`bytes[i] as char` 会破坏中文——已修过的 bug）。`content.rs::rewrite_links` 做本地图片路径重写，测试必须覆盖中文内容
 - **BOM**：`render_markdown` 开头 `trim_start_matches('\u{feff}')`——Windows 记事本/PowerShell 保存 UTF-8 会写 BOM，不剥会导致首行 `#` 标题失效（已修过的 bug，有回归测试）
 - `--check-links` 扫描 `href="` / `src="` 模式；CSS 常量里的类名不影响（只匹配属性写法）
+- **子模块残留**：上游移除某子模块（删 `.gitmodules` 条目 + gitlink）后，已 checkout 的 `authors/<name>/` 目录（含 `.git` 文件）会留在工作副本里，下次 `git add -A` 会把它重新暂存成无 URL 的 gitlink，CI 的 `submodule update` 直接报 "No url found for submodule path"（已修过的 bug：`soil/src/git.rs::remove_stale_submodules` 在暂存前清理；改 soil 的提交逻辑时不要绕过它）
 - Windows 开发环境：输出路径一律用 `/` 拼接，不要依赖 `Path::display()`
 - soil 无测试；改 soil 后验证 = build + fmt + clippy
 

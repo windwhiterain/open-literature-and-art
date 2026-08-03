@@ -166,13 +166,11 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (y, m, d)
 }
 
+/// A named file entry from a directory listing.
+type DirEntry = (String, std::path::PathBuf);
+
 /// List the contents of a directory: (.md files, other entries).
-fn list_dir_contents(
-    dir: &Path,
-) -> (
-    Vec<(String, std::path::PathBuf)>,
-    Vec<(String, std::path::PathBuf)>,
-) {
+fn list_dir_contents(dir: &Path) -> (Vec<DirEntry>, Vec<DirEntry>) {
     let mut md = Vec::new();
     let mut other = Vec::new();
     let entries = match fs::read_dir(dir) {
