@@ -2,10 +2,24 @@ mod git;
 mod github;
 mod wizard;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Set when the user presses Ctrl+C. The handler swallows the signal so the
+/// program keeps running — Ctrl+C is the terminal's copy shortcut, not quit.
+/// Exit is via Esc or `q` instead.
+pub static CTRL_C_PRESSED: AtomicBool = AtomicBool::new(false);
+
 const UPSTREAM_OWNER: &str = "open-literature-and-art";
 const UPSTREAM_REPO: &str = "open-literature-and-art";
 
 fn main() {
+    // Capture Ctrl+C: don't let it terminate the process (it's copy, not quit).
+    if let Err(e) = ctrlc::set_handler(|| {
+        CTRL_C_PRESSED.store(true, Ordering::SeqCst);
+    }) {
+        eprintln!("警告: 无法注册 Ctrl+C 处理器: {e}");
+    }
+
     // ── Step 0: Environment checks ──
 
     // 0a. Check git is installed
