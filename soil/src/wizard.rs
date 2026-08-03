@@ -70,19 +70,6 @@ fn ask_with_default(prompt: &str, default: &str) -> String {
     }
 }
 
-fn confirm(prompt: &str) -> bool {
-    loop {
-        let answer = ask(&format!("{prompt} (y/n)"));
-        if answer.eq_ignore_ascii_case("y") || answer.eq_ignore_ascii_case("yes") {
-            return true;
-        }
-        if answer.eq_ignore_ascii_case("n") || answer.eq_ignore_ascii_case("no") {
-            return false;
-        }
-        println!("请输入 y 或 n。");
-    }
-}
-
 fn section(title: &str) {
     println!();
     println!("═══ {title} ═══");
@@ -93,7 +80,8 @@ fn section(title: &str) {
 
 pub struct WizardResult {
     pub author_name: String,
-    pub pr_url: String,
+    /// PR URL; None when the maintainer pushed directly (no PR needed).
+    pub pr_url: Option<String>,
 }
 
 pub fn run(
@@ -119,80 +107,125 @@ pub fn run(
     // Step 4: Manuscript folder + repo
     // The folder is asked first; whether it is already a git repo decides
     // between creating a new repo and reusing the existing one.
-    let (manuscript_repo, _force_push) = step_manuscript(&auth, &user)?;
+    let manuscript_repo = step_manuscript(&auth, &user)?;
 
-    // Step 5: Fork upstream & clone locally — the local fork is the source
-    // of truth for deciding between an update PR and a new author PR.
-    let fork_dir = cache_dir.join("fork");
-    step_fork_clone(&auth, &user, upstream_owner, upstream_repo, &fork_dir)?;
+    // Step 5: Prepare the local work copy on the v1 branch
+    // Maintainers (push permission on upstream) clone the upstream directly
+    // and skip fork & PR; everyone else forks first.
+    let is_maintainer = auth.has_push_permission(upstream_owner, upstream_repo)?;
+    if is_maintainer {
+        println!();
+        println!("检测到你拥有「开源文艺」仓库的直接写权限，将直接提交到上游（无需 fork / PR）。");
+    }
+    let work_dir = cache_dir.join("fork");
+    step_prepare_work_copy(
+        &auth,
+        &user,
+        upstream_owner,
+        upstream_repo,
+        is_maintainer,
+        &work_dir,
+    )?;
 
     // Step 6: Decide & submit
-    // Repo already listed in authors/ → update PR; otherwise ask for a new
+    // Repo already listed in authors/ → update; otherwise ask for a new
     // author name, and if the submit conflicts (name taken), ask again.
-    let fork_modules = read_fork_gitmodules(&fork_dir);
-    let repo_url = format!("https://github.com/{}.git", manuscript_repo.full_name);
-    let existing_author = fork_modules
-        .iter()
-        .find(|(_, url)| normalize_git_url(url) == normalize_git_url(&repo_url))
-        .map(|(path, _)| path.strip_prefix("authors/").unwrap_or(path).to_string());
+    let (author_name, is_update, made_change) =
+        decide_and_submit(&user, &manuscript_repo, &work_dir)?;
 
-    let (author_name, pr_url) = if let Some(name) = existing_author {
-        println!("检测到你的文稿仓库已收录为作者「{name}」，将提交更新。");
-        let pr = submit_submodule(
+    // Step 7: Regular users open a PR; maintainers are already done.
+    // No PR when nothing changed (e.g. re-running with no new manuscript).
+    let pr_url = if is_maintainer || !made_change {
+        if !made_change {
+            println!("没有新的变更，无需创建 Pull Request。");
+        }
+        None
+    } else {
+        let pr = create_author_pr(
             &auth,
             &user,
             upstream_owner,
             upstream_repo,
             &manuscript_repo,
-            &name,
-            true,
-            &fork_dir,
+            &author_name,
+            is_update,
         )?;
-        (name, pr.html_url)
-    } else {
-        let (name, pr_url) = loop {
-            let name = ask_with_default("你的作者名称（将显示在网站上）", &user.login);
-            match submit_submodule(
-                &auth,
-                &user,
-                upstream_owner,
-                upstream_repo,
-                &manuscript_repo,
-                &name,
-                false,
-                &fork_dir,
-            ) {
-                Ok(pr) => break (name, pr.html_url),
-                Err(e) if is_name_conflict(&e) => {
-                    println!("提交失败: {e}");
-                    println!("可能是作者名称「{name}」与现有作者冲突，请换一个名字。");
-                }
-                Err(e) => return Err(e),
-            }
-        };
-        (name, pr_url)
+        Some(pr.html_url)
     };
 
     // Success
     println!();
-    println!("╔══════════════════════════════════════╗");
-    println!("║  已提交 Pull Request！               ║");
-    println!("║  {}\t║", pr_url);
-    println!("║  请等待审核。审核通过后你的文稿将   ║");
-    println!("║  出现在「开源文艺」网站上。         ║");
-    println!("╚══════════════════════════════════════╝");
+    if let Some(url) = &pr_url {
+        println!("╔══════════════════════════════════════╗");
+        println!("║  已提交 Pull Request！               ║");
+        println!("║  {url}\t║");
+        println!("║  请等待审核。审核通过后你的文稿将   ║");
+        println!("║  出现在「开源文艺」网站上。         ║");
+        println!("╚══════════════════════════════════════╝");
+    } else if made_change {
+        println!("已直接推送到「开源文艺」上游仓库 v1 分支，无需 Pull Request。");
+    } else {
+        println!("文稿已是最新，没有需要提交的变更。");
+    }
     println!();
 
-    // Preview tip
-    println!("💡 提示：你可以在以下目录预览网站：");
-    println!("   {}", fork_dir.display());
-    println!("   在该目录下运行 cargo run --release -- --out-dir dist");
-    println!("   然后用浏览器打开 dist/index.html");
+    // Local preview: build the site and open it in the browser.
+    section("本地预览");
+    let author_submodule = format!("authors/{author_name}");
+    println!("正在拉取你的文稿内容...");
+    git::submodule_init(&author_submodule, &work_dir)?;
+
+    match sitegen_build_and_open(&work_dir) {
+        Ok(()) => {}
+        Err(e) => println!("{e}"),
+    }
 
     Ok(WizardResult {
         author_name,
         pr_url,
     })
+}
+
+/// Build the site in `work_dir` (via the bundled sitegen library) and open
+/// `dist/index.html` in the default browser.
+fn sitegen_build_and_open(work_dir: &Path) -> Result<(), String> {
+    println!("正在构建网站...");
+    let config = sitegen::Config {
+        authors_dir: work_dir.join("authors"),
+        out_dir: work_dir.join("dist"),
+        base_url: String::new(),
+        check_links: false,
+    };
+    let summary = sitegen::run(&config);
+    for w in &summary.warnings {
+        println!("警告: {w}");
+    }
+    if summary.pages_written == 0 {
+        return Err("网站构建未生成任何页面".into());
+    }
+
+    let dist = work_dir
+        .join("dist")
+        .join("index.html")
+        .canonicalize()
+        .unwrap_or_else(|_| work_dir.join("dist").join("index.html"));
+    println!("正在打开浏览器预览...");
+    open_browser(&dist.to_string_lossy());
+    println!("已打开：{}", dist.display());
+    Ok(())
+}
+
+fn open_browser(url_or_path: &str) {
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("cmd")
+        .args(["/c", "start", "", url_or_path])
+        .spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(url_or_path).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open")
+        .arg(url_or_path)
+        .spawn();
 }
 
 fn step_welcome() -> Result<(), String> {
@@ -209,9 +242,6 @@ fn step_welcome() -> Result<(), String> {
     println!("退出：任何输入处按 Esc 即可退出。");
     println!("提示：Ctrl+C 是复制快捷键，不会退出程序。");
     println!();
-    if !confirm("是否继续？") {
-        return Err("用户取消".into());
-    }
     Ok(())
 }
 
@@ -296,7 +326,7 @@ fn repo_from_url(url: &str) -> Result<GitHubRepo, String> {
 /// force push (not delete-and-recreate). The folder itself is the repo's
 /// local working copy: it gets initialized, committed and pushed before
 /// returning.
-fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<(GitHubRepo, bool), String> {
+fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<GitHubRepo, String> {
     section("文稿目录与仓库");
 
     println!("你的文稿文件夹将直接作为仓库的工作副本。");
@@ -315,13 +345,13 @@ fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<(GitHubRepo, bool),
     let existing_origin = if is_git { git::remote_url(&dir) } else { None };
 
     // Decide repo: existing git repo → reuse; otherwise create new
-    let (repo, force_push) = if let Some(url) = &existing_origin {
+    let repo = if let Some(url) = &existing_origin {
         println!("检测到该目录已是 git 仓库（远程: {url}）。");
-        (repo_from_url(url)?, false)
+        repo_from_url(url)?
     } else if is_git {
         println!("检测到该目录已是 git 仓库，但未配置远程仓库(origin)。");
         let url = ask("请输入你的 GitHub 仓库 URL (如 https://github.com/user/repo):");
-        (repo_from_url(&url)?, false)
+        repo_from_url(&url)?
     } else {
         println!("该目录还不是 git 仓库，将为你创建新仓库。");
         let repo_name = ask_with_default("仓库名称", "literature");
@@ -330,22 +360,17 @@ fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<(GitHubRepo, bool),
         match auth.create_repo(&repo_name, &desc) {
             Ok(repo) => {
                 println!("仓库已创建: {}", repo.html_url);
-                (repo, false)
+                repo
             }
             Err(e) if e.contains("already exists") => {
-                println!("仓库「{repo_name}」已存在。");
-                if !confirm("是否用你的文稿覆盖该仓库的内容？(原内容将被替换)") {
-                    return Err("用户取消".into());
+                println!(
+                    "仓库「{repo_name}」已存在，将用你的文稿内容覆盖（保留远端历史，普通 push）。"
+                );
+                GitHubRepo {
+                    full_name: format!("{}/{}", user.login, repo_name),
+                    clone_url: format!("https://github.com/{}/{}.git", user.login, repo_name),
+                    html_url: format!("https://github.com/{}/{}", user.login, repo_name),
                 }
-                println!("将用 force push 覆盖原仓库。");
-                (
-                    GitHubRepo {
-                        full_name: format!("{}/{}", user.login, repo_name),
-                        clone_url: format!("https://github.com/{}/{}.git", user.login, repo_name),
-                        html_url: format!("https://github.com/{}/{}", user.login, repo_name),
-                    },
-                    true,
-                )
             }
             Err(e) => return Err(e),
         }
@@ -370,7 +395,16 @@ fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<(GitHubRepo, bool),
         .unwrap_or("soil@users.noreply.github.com");
     git::config_user(display, email, &dir)?;
 
-    // Commit & push
+    // If SSH to GitHub works for this user, route HTTPS traffic over SSH
+    // (local config only) — much more reliable on flaky networks.
+    if git::ssh_available() {
+        println!("检测到 SSH 可用，将使用 SSH 通道加速推送。");
+        git::configure_ssh_insteadof(&dir)?;
+    }
+
+    // Commit & push — only push when there is something new to push.
+    // (A push with an empty delta still touches the network and can hang on
+    // flaky connections; skip it entirely when everything is in sync.)
     println!("正在提交并推送文稿...");
     git::add_all(&dir)?;
     if git::has_staged_changes(&dir) {
@@ -378,15 +412,25 @@ fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<(GitHubRepo, bool),
     } else {
         println!("没有新的变更需要提交。");
     }
-    println!("正在推送...");
-    if force_push {
-        git::push_upstream_force(&dir)?;
+    if git::is_ahead_of_upstream(&dir) {
+        println!("正在推送...");
+        match git::push_upstream(&dir) {
+            Ok(()) => {}
+            // Non-network failure: the remote has unrelated history
+            // (existing repo). Merge its history keeping local content —
+            // the result tree equals the user's folder exactly — then push.
+            Err(_) => {
+                println!("远端仓库已有其他内容，正在合并其历史（内容以你的目录为准）...");
+                git::pull_remote_ours(&dir)?;
+                git::push_upstream(&dir)?;
+            }
+        }
+        println!("文稿已推送到 {}", repo.html_url);
     } else {
-        git::push_upstream(&dir)?;
+        println!("文稿已与远端同步，无需推送。");
     }
-    println!("文稿已推送到 {}", repo.html_url);
 
-    Ok((repo, force_push))
+    Ok(repo)
 }
 
 /// Read `.gitmodules` from the local fork clone, returning (path, url) pairs.
@@ -426,68 +470,169 @@ fn normalize_git_url(url: &str) -> String {
         .to_string()
 }
 
-/// Fork the upstream if needed and clone (or update) the local fork copy.
-fn step_fork_clone(
+/// Prepare the local work copy on the v1 branch:
+/// maintainers clone the upstream directly; everyone else forks first.
+fn step_prepare_work_copy(
     auth: &Auth,
     user: &GitHubUser,
     upstream_owner: &str,
     upstream_repo: &str,
-    fork_dir: &Path,
+    is_maintainer: bool,
+    work_dir: &Path,
 ) -> Result<(), String> {
     section("提交到开源文艺");
 
-    println!("正在 Fork {upstream_owner}/{upstream_repo}...");
-
-    if !fork_dir.exists() {
-        match auth.fork_repo(upstream_owner, upstream_repo) {
-            Ok(fork) => {
-                println!("Fork 完成: {}", fork.html_url);
-                // Wait a moment for GitHub to set up the fork
-                println!("等待 GitHub 准备仓库...");
-                std::thread::sleep(std::time::Duration::from_secs(5));
+    if !work_dir.exists() {
+        let (owner, label) = if is_maintainer {
+            (upstream_owner.to_string(), "上游仓库".to_string())
+        } else {
+            println!("正在 Fork {upstream_owner}/{upstream_repo}...");
+            match auth.fork_repo(upstream_owner, upstream_repo) {
+                Ok(fork) => {
+                    println!("Fork 完成: {}", fork.html_url);
+                    // Wait a moment for GitHub to set up the fork
+                    println!("等待 GitHub 准备仓库...");
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                }
+                Err(e) => {
+                    // Fork may already exist
+                    eprintln!("提示: {e}");
+                    println!("尝试使用已有 Fork...");
+                }
             }
-            Err(e) => {
-                // Fork may already exist
-                eprintln!("提示: {e}");
-                println!("尝试使用已有 Fork...");
-            }
-        }
+            (user.login.clone(), "Fork".to_string())
+        };
 
         let auth_url = format!(
-            "https://{token}@github.com/{login}/{repo}.git",
+            "https://{token}@github.com/{owner}/{repo}.git",
             token = auth.token,
-            login = user.login,
+            owner = owner,
             repo = upstream_repo
         );
-        println!("正在克隆 Fork...");
-        git::clone(&auth_url, fork_dir)?;
+        println!("正在克隆{label}（v1 分支）...");
+        git::clone_branch(&auth_url, "v1", work_dir)?;
 
         // Strip the token out of the stored remote URL (security)
-        let clean_url = format!("https://github.com/{}/{}.git", user.login, upstream_repo);
-        git::add_remote(&clean_url, fork_dir)?;
+        let clean_url = format!("https://github.com/{owner}/{upstream_repo}.git");
+        git::add_remote(&clean_url, work_dir)?;
+    } else if is_maintainer {
+        println!("本地已有副本，正在更新（v1 分支）...");
+        // Make sure origin points at the upstream (an old cached clone may
+        // be a fork), then refresh v1 from it.
+        let upstream_url = format!("https://github.com/{upstream_owner}/{upstream_repo}.git");
+        git::add_remote(&upstream_url, work_dir)?;
+        git::fetch_origin(work_dir)?;
+        git::checkout_branch("v1", work_dir)?;
+        git::pull(work_dir)?;
     } else {
-        println!("本地已有 Fork 副本，正在更新...");
-        git::pull(fork_dir)?;
+        // The fork may be stale or predate the v1 branch: sync local v1 and
+        // the fork's origin/v1 from upstream.
+        println!("本地已有副本，正在与上游同步（v1 分支）...");
+        let upstream_url = format!("https://github.com/{upstream_owner}/{upstream_repo}.git");
+        git::ensure_upstream_remote(&upstream_url, work_dir)?;
+        git::fetch_upstream(work_dir)?;
+        git::sync_branch_from_upstream("v1", work_dir)?;
     }
 
-    // Configure git identity in fork
+    // Configure git identity
     let display = user.name.as_deref().unwrap_or(&user.login);
     let email = user
         .email
         .as_deref()
         .unwrap_or("soil@users.noreply.github.com");
-    git::config_user(display, email, fork_dir)?;
+    git::config_user(display, email, work_dir)?;
+
+    // Route GitHub HTTPS traffic over SSH when available (local config only;
+    // .gitmodules URLs stay HTTPS so the site CI can clone without creds).
+    if git::ssh_available() {
+        println!("检测到 SSH 可用，将使用 SSH 通道加速推送。");
+        git::configure_ssh_insteadof(work_dir)?;
+    }
 
     Ok(())
 }
 
-/// Add or update the author submodule in the local fork, push, and open a PR.
+/// Decide whether this repo is an update (already in authors/) or a new
+/// author, then add/update the submodule and push. Returns the author name,
+/// whether it was an update, and whether anything was actually committed
+/// (an update with no new manuscript commits makes no changes). On name
+/// conflicts the user is asked to pick a different author name and the
+/// submit is retried.
 ///
-/// Conflict detection happens here, not on the local fork: the user's fork may
+/// Conflict detection happens here, not on the local fork: the work copy may
 /// lag behind upstream, so a locally-clean submission can still collide with
-/// newer upstream authors at submit time. On conflict the caller re-asks for
-/// the author name.
+/// newer upstream authors at submit time.
+fn decide_and_submit(
+    user: &GitHubUser,
+    manuscript_repo: &GitHubRepo,
+    work_dir: &Path,
+) -> Result<(String, bool, bool), String> {
+    let modules = read_fork_gitmodules(work_dir);
+    let repo_url = format!("https://github.com/{}.git", manuscript_repo.full_name);
+
+    if let Some((path, _)) = modules
+        .iter()
+        .find(|(_, url)| normalize_git_url(url) == normalize_git_url(&repo_url))
+    {
+        let name = path.strip_prefix("authors/").unwrap_or(path).to_string();
+        println!("检测到你的文稿仓库已收录为作者「{name}」，将提交更新。");
+        let made_change = submit_submodule(manuscript_repo, &name, true, work_dir)?;
+        return Ok((name, true, made_change));
+    }
+
+    loop {
+        let name = ask_with_default("你的作者名称（将显示在网站上）", &user.login);
+        match submit_submodule(manuscript_repo, &name, false, work_dir) {
+            Ok(made_change) => return Ok((name, false, made_change)),
+            Err(e) if is_name_conflict(&e) => {
+                println!("提交失败: {e}");
+                println!("可能是作者名称「{name}」与现有作者冲突，请换一个名字。");
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Add or update the author submodule in the work copy and push.
+/// Returns whether a commit was actually made (false when the submodule was
+/// already up to date — nothing changed, so no commit/push happens).
 fn submit_submodule(
+    manuscript_repo: &GitHubRepo,
+    author_name: &str,
+    is_update: bool,
+    work_dir: &Path,
+) -> Result<bool, String> {
+    let author_dir = format!("authors/{author_name}");
+    if is_update {
+        println!("正在更新子模块到最新...");
+        git::submodule_update(&author_dir, work_dir)?;
+    } else {
+        println!("正在添加子模块...");
+        let submodule_url = format!("https://github.com/{}.git", manuscript_repo.full_name);
+        git::submodule_add(&submodule_url, &author_dir, work_dir)?;
+    }
+
+    // Commit and push — only when something actually changed
+    git::add_all(work_dir)?;
+    if !git::has_staged_changes(work_dir) {
+        println!("子模块已是最新，没有新的变更需要提交。");
+        return Ok(false);
+    }
+
+    let commit_msg = if is_update {
+        format!("更新作者 {author_name} 的文稿")
+    } else {
+        format!("添加作者 {author_name} 的文稿子模块")
+    };
+    git::commit(&commit_msg, work_dir)?;
+    println!("正在推送...");
+    git::push(work_dir)?;
+
+    Ok(true)
+}
+
+/// Open a PR from the user's fork (v1 branch) to the upstream v1 branch.
+fn create_author_pr(
     auth: &Auth,
     user: &GitHubUser,
     upstream_owner: &str,
@@ -495,30 +640,7 @@ fn submit_submodule(
     manuscript_repo: &GitHubRepo,
     author_name: &str,
     is_update: bool,
-    fork_dir: &Path,
 ) -> Result<PullRequest, String> {
-    let author_dir = format!("authors/{author_name}");
-    if is_update {
-        println!("正在更新子模块到最新...");
-        git::submodule_update(&author_dir, fork_dir)?;
-    } else {
-        println!("正在添加子模块...");
-        let submodule_url = format!("https://github.com/{}.git", manuscript_repo.full_name);
-        git::submodule_add(&submodule_url, &author_dir, fork_dir)?;
-    }
-
-    // Commit and push
-    let commit_msg = if is_update {
-        format!("更新作者 {author_name} 的文稿")
-    } else {
-        format!("添加作者 {author_name} 的文稿子模块")
-    };
-    git::add_all(fork_dir)?;
-    git::commit(&commit_msg, fork_dir)?;
-    println!("正在推送...");
-    git::push(fork_dir)?;
-
-    // Create PR
     section("创建 Pull Request");
     let head = format!("{}:v1", user.login);
     let title = if is_update {

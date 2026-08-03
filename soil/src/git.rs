@@ -1,5 +1,7 @@
 use std::path::Path;
 use std::process::Command;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 /// Check whether `git` is available on the system PATH.
 pub fn is_git_installed() -> bool {
@@ -9,6 +11,70 @@ pub fn is_git_installed() -> bool {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|s| s.success())
+}
+
+/// Whether SSH to GitHub is usable for this user: an SSH key exists, and the
+/// key authenticates against GitHub (network reachable, key registered).
+/// Probed once per run; result is cached.
+pub fn ssh_available() -> bool {
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *AVAILABLE.get_or_init(probe_ssh)
+}
+
+fn probe_ssh() -> bool {
+    // 1. An SSH key must exist
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    let ssh_dir = home.join(".ssh");
+    let has_key = [
+        "id_ed25519",
+        "id_rsa",
+        "id_ecdsa",
+        "id_ed25519_sk",
+        "id_ecdsa_sk",
+    ]
+    .iter()
+    .any(|k| ssh_dir.join(k).exists());
+    if !has_key {
+        return false;
+    }
+
+    // 2. Auth probe: fast, non-interactive, bounded timeout.
+    // GitHub replies "successfully authenticated" on stderr (exit code 1).
+    let output = Command::new("ssh")
+        .args([
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "ConnectTimeout=10",
+            "-T",
+            "git@github.com",
+        ])
+        .stdout(std::process::Stdio::null())
+        .output();
+
+    match output {
+        Ok(o) => String::from_utf8_lossy(&o.stderr).contains("successfully authenticated"),
+        Err(_) => false,
+    }
+}
+
+/// Make every `https://github.com/...` fetch/push in this repo go over SSH
+/// instead (local config only, never committed). Used when SSH is available
+/// and HTTPS is flaky; without it the repo just uses HTTPS as-is.
+pub fn configure_ssh_insteadof(repo_dir: &Path) -> Result<(), String> {
+    run_git(
+        &[
+            "config",
+            "url.git@github.com:.insteadOf",
+            "https://github.com/",
+        ],
+        Some(repo_dir),
+    )?;
+    Ok(())
 }
 
 /// Print installation instructions for git and return false.
@@ -34,15 +100,104 @@ fn run_git(args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(format!("git {} 失败: {}", args.join(" "), stderr.trim()))
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let msg = if stderr.trim().is_empty() {
+            stdout.trim().to_string()
+        } else {
+            stderr.trim().to_string()
+        };
+        Err(format!("git {} 失败: {msg}", args.join(" ")))
     }
 }
 
-/// Clone a repository to a destination directory.
-pub fn clone(url: &str, dest: &Path) -> Result<(), String> {
+/// Whether a git error looks like a transient network failure worth retrying.
+fn is_network_error(err: &str) -> bool {
+    let lower = err.to_lowercase();
+    lower.contains("unable to access")
+        || lower.contains("connection")
+        || lower.contains("recv failure")
+        || lower.contains("timeout")
+        || lower.contains("reset")
+        || lower.contains("ssl")
+        || lower.contains("tls")
+        || lower.contains("could not resolve host")
+        || lower.contains("network is unreachable")
+        || lower.contains("failed to connect")
+        || lower.contains("host key verification failed")
+}
+
+/// Run a git command that needs the network, retrying forever on transient
+/// network failures (flaky connections reset pushes/fetches). Prints the
+/// attempt count so the user sees it is still working. Ctrl+C is swallowed
+/// (it is the copy shortcut) — the retry loop just keeps going.
+fn run_git_network(args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        match run_git(args, cwd) {
+            Ok(out) => return Ok(out),
+            Err(e) if is_network_error(&e) => {
+                println!("网络不稳定（第 {attempt} 次失败），3 秒后自动重试...");
+                if crate::CTRL_C_PRESSED.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    println!("[提示] Ctrl+C 是复制快捷键，已忽略，重试继续中。");
+                }
+                std::thread::sleep(Duration::from_secs(3));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Clone a repository at a specific branch (e.g. `v1`).
+pub fn clone_branch(url: &str, branch: &str, dest: &Path) -> Result<(), String> {
     let parent = dest.parent().unwrap_or(Path::new("."));
     let _ = std::fs::create_dir_all(parent);
-    run_git(&["clone", url, &dest.to_string_lossy()], None)?;
+    run_git_network(&["clone", "-b", branch, url, &dest.to_string_lossy()], None)?;
+    Ok(())
+}
+
+/// Ensure the given branch is checked out, creating it from `origin/<branch>`
+/// when it does not exist locally yet.
+pub fn checkout_branch(branch: &str, repo_dir: &Path) -> Result<(), String> {
+    if run_git(&["checkout", branch], Some(repo_dir)).is_ok() {
+        return Ok(());
+    }
+    run_git(
+        &["checkout", "-b", branch, &format!("origin/{branch}")],
+        Some(repo_dir),
+    )?;
+    Ok(())
+}
+
+/// Fetch all branches from the `origin` remote.
+pub fn fetch_origin(repo_dir: &Path) -> Result<(), String> {
+    run_git_network(&["fetch", "origin"], Some(repo_dir))?;
+    Ok(())
+}
+
+/// Ensure an `upstream` remote exists, pointing at the given URL.
+pub fn ensure_upstream_remote(url: &str, repo_dir: &Path) -> Result<(), String> {
+    if run_git(&["remote", "get-url", "upstream"], Some(repo_dir)).is_err() {
+        run_git(&["remote", "add", "upstream", url], Some(repo_dir))?;
+    }
+    Ok(())
+}
+
+/// Fetch all branches from the `upstream` remote.
+pub fn fetch_upstream(repo_dir: &Path) -> Result<(), String> {
+    run_git_network(&["fetch", "upstream"], Some(repo_dir))?;
+    Ok(())
+}
+
+/// Reset the local `branch` to `upstream/<branch>` and force-sync the fork's
+/// `origin/<branch>` to the same commit. Used when the fork is stale or was
+/// created before the branch existed.
+pub fn sync_branch_from_upstream(branch: &str, repo_dir: &Path) -> Result<(), String> {
+    run_git(
+        &["checkout", "-B", branch, &format!("upstream/{branch}")],
+        Some(repo_dir),
+    )?;
+    run_git_network(&["push", "-f", "-u", "origin", branch], Some(repo_dir))?;
     Ok(())
 }
 
@@ -91,37 +246,79 @@ pub fn has_staged_changes(dir: &Path) -> bool {
     }
 }
 
-/// Push the current branch to `origin` and set upstream tracking.
-pub fn push_upstream(dir: &Path) -> Result<(), String> {
-    run_git(&["push", "-u", "origin", "HEAD"], Some(dir))?;
-    Ok(())
+/// Whether the current branch has commits not yet pushed to its upstream.
+/// When false, a push would be a no-op — skip it.
+pub fn is_ahead_of_upstream(dir: &Path) -> bool {
+    match run_git(&["rev-list", "--count", "@{u}..HEAD"], Some(dir)) {
+        Ok(out) => out.trim().parse::<u32>().unwrap_or(0) > 0,
+        // No upstream tracking yet (never pushed): be conservative, push.
+        Err(_) => true,
+    }
 }
 
-/// Force-push the current branch to `origin`, replacing the remote history.
-/// Used when overwriting an existing repo with the same name.
-pub fn push_upstream_force(dir: &Path) -> Result<(), String> {
-    run_git(&["push", "-u", "origin", "HEAD", "--force"], Some(dir))?;
+/// Push the current branch to `origin` and set upstream tracking.
+pub fn push_upstream(dir: &Path) -> Result<(), String> {
+    run_git_network(&["push", "-u", "origin", "HEAD"], Some(dir))?;
     Ok(())
 }
 
 /// Pull latest changes in the given repository directory.
 pub fn pull(repo_dir: &Path) -> Result<(), String> {
-    run_git(&["pull"], Some(repo_dir))?;
+    run_git_network(&["pull"], Some(repo_dir))?;
     Ok(())
 }
 
-/// Add a git submodule.
+/// Merge the remote default branch into the local branch keeping local
+/// content: remote history is preserved but its file changes are discarded,
+/// so the resulting tree equals the user's folder exactly. Enables a plain
+/// (non-force) push over an existing repo with unrelated history.
+pub fn pull_remote_ours(repo_dir: &Path) -> Result<(), String> {
+    for branch in ["main", "master"] {
+        let args = [
+            "pull",
+            "--allow-unrelated-histories",
+            "-s",
+            "ours",
+            "origin",
+            branch,
+        ];
+        if run_git_network(&args, Some(repo_dir)).is_ok() {
+            return Ok(());
+        }
+    }
+    Err("无法合并远端历史：远端分支不是 main 或 master".into())
+}
+
+/// Add a git submodule. A stale submodule git directory from a previous
+/// failed run (`authors/<name>` in `.git/modules/`) makes git refuse the
+/// add — clean it up first and retry.
 pub fn submodule_add(url: &str, path: &str, repo_dir: &Path) -> Result<(), String> {
-    run_git(&["submodule", "add", url, path], Some(repo_dir))?;
+    let target = repo_dir.join(path);
+    let modules_dir = repo_dir.join(".git/modules").join(path);
+    if modules_dir.exists() || target.join(".git").exists() {
+        println!("检测到残留的子模块记录，正在清理...");
+        let _ = run_git(&["submodule", "deinit", "-f", path], Some(repo_dir));
+        let _ = std::fs::remove_dir_all(&modules_dir);
+        let _ = std::fs::remove_dir_all(&target);
+    }
+    run_git_network(&["submodule", "add", url, path], Some(repo_dir))?;
     Ok(())
 }
 
 /// Update an existing submodule to the latest commit of its remote branch.
 pub fn submodule_update(path: &str, repo_dir: &Path) -> Result<(), String> {
-    run_git(
+    run_git_network(
         &["submodule", "update", "--init", "--remote", path],
         Some(repo_dir),
     )?;
+    Ok(())
+}
+
+/// Check out a submodule to the commit recorded in the work copy (no
+/// network — the .gitmodules gitlink is the local-of-record commit).
+/// Used before building the site for local preview.
+pub fn submodule_init(path: &str, repo_dir: &Path) -> Result<(), String> {
+    run_git_network(&["submodule", "update", "--init", path], Some(repo_dir))?;
     Ok(())
 }
 
@@ -139,7 +336,7 @@ pub fn commit(message: &str, repo_dir: &Path) -> Result<(), String> {
 
 /// Push to the default remote.
 pub fn push(repo_dir: &Path) -> Result<(), String> {
-    run_git(&["push"], Some(repo_dir))?;
+    run_git_network(&["push"], Some(repo_dir))?;
     Ok(())
 }
 

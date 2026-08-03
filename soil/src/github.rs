@@ -206,9 +206,12 @@ fn auth_header(token: &str) -> String {
 /// "name already exists on this account") while the top-level `message`
 /// stays generic ("Repository creation failed.").
 fn error_message(text: &str) -> String {
-    let err: serde_json::Value = serde_json::from_str(text)
-        .unwrap_or(serde_json::json!({"message": "unknown"}));
-    let mut msg = err["message"].as_str().unwrap_or("unknown error").to_string();
+    let err: serde_json::Value =
+        serde_json::from_str(text).unwrap_or(serde_json::json!({"message": "unknown"}));
+    let mut msg = err["message"]
+        .as_str()
+        .unwrap_or("unknown error")
+        .to_string();
     if let Some(errors) = err["errors"].as_array() {
         for e in errors {
             if let Some(m) = e["message"].as_str() {
@@ -258,6 +261,16 @@ impl Auth {
     pub fn get_user(&self) -> Result<GitHubUser, String> {
         let text = get_json(&self.token, &format!("{GITHUB_API}/user"))?;
         serde_json::from_str(&text).map_err(|e| format!("解析用户信息失败: {e}"))
+    }
+
+    /// Whether the authenticated user has push permission on the repo.
+    /// True for maintainers of the upstream repo — they skip fork & PR and
+    /// push directly.
+    pub fn has_push_permission(&self, owner: &str, repo: &str) -> Result<bool, String> {
+        let text = get_json(&self.token, &format!("{GITHUB_API}/repos/{owner}/{repo}"))?;
+        let json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("解析仓库信息失败: {e}"))?;
+        Ok(json["permissions"]["push"].as_bool().unwrap_or(false))
     }
 
     /// Create a new repository.

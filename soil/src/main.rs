@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Exit is via Esc or `q` instead.
 pub static CTRL_C_PRESSED: AtomicBool = AtomicBool::new(false);
 
-const UPSTREAM_OWNER: &str = "open-literature-and-art";
+const UPSTREAM_OWNER: &str = "windwhiterain";
 const UPSTREAM_REPO: &str = "open-literature-and-art";
 
 fn main() {
@@ -46,7 +46,11 @@ fn main() {
     match wizard::run(&cache_dir, UPSTREAM_OWNER, UPSTREAM_REPO) {
         Ok(result) => {
             println!("作者「{}」的文稿已成功提交！", result.author_name);
-            println!("Pull Request: {}", result.pr_url);
+            if let Some(url) = result.pr_url {
+                println!("Pull Request: {url}");
+            } else {
+                println!("已直接推送到上游仓库 v1 分支（无需 Pull Request）。");
+            }
         }
         Err(e) => {
             if e == "用户取消" {

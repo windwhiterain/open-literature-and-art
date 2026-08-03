@@ -2,6 +2,11 @@ use pulldown_cmark::{Options, Parser};
 
 /// Render markdown to HTML (full document — includes the H1 title)
 pub fn render_markdown(input: &str) -> String {
+    // Strip a leading UTF-8 BOM — Windows editors (Notepad, PowerShell)
+    // write one, and it would otherwise make the first `#` line fail to
+    // parse as a heading.
+    let input = input.trim_start_matches('\u{feff}');
+
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_FOOTNOTES
@@ -190,6 +195,19 @@ mod tests {
         let html = render_markdown(md);
         let title = extract_title(&html, "my-article.md");
         assert_eq!(title, "my-article");
+    }
+
+    #[test]
+    fn test_render_markdown_strips_bom() {
+        // Notepad/PowerShell add a UTF-8 BOM; the first heading must still parse.
+        let md = "\u{feff}# Hello World\n\nSome content.";
+        let html = render_markdown(md);
+        assert!(
+            html.contains("<h1>Hello World</h1>"),
+            "BOM broke the heading: {html}"
+        );
+        let title = extract_title(&html, "fallback.md");
+        assert_eq!(title, "Hello World");
     }
 
     #[test]

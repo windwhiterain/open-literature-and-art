@@ -15,3 +15,6 @@ serde_json = "1"
 dirs = "6"
 walkdir = "2"
 ctrlc = "3"
+# sitegen as a library: the site builder ships inside the soil binary so
+# users only need the single soil executable (no cargo/source required).
+sitegen = { path = ".." }
