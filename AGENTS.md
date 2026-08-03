@@ -91,6 +91,7 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 
 `.github/workflows/deploy.yml`：
 - 触发分支是 **`v1`**（不是 main），`workflow_dispatch` 也可
+- **dirty-only 触发**：paths 过滤——仅 `authors/**`、`.gitmodules`、`src/**`、`Cargo.toml`、`Cargo.lock`、workflow 自身变更时构建部署；只改 soil/README 等不会触发（soil 编译由 release.yml 的 `**/*.rs` 覆盖）
 - checkout 必须 `submodules: recursive`（`authors/whiting`、`authors/test_user` 等是 git 子模块）
 - 上传 `dist/` → GitHub Pages；仓库 Settings → Pages → Source 需手动设为 "GitHub Actions"（YAML 无法配置）
 - `dist/` 和 `target/` 已 gitignore

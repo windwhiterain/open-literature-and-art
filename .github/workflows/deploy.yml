@@ -3,6 +3,16 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [v1]
+    # Only rebuild/deploy when something that affects the site changed:
+    # author content (incl. submodule gitlinks), the sitegen code, or this
+    # workflow itself. README/docs/soil changes skip the deploy entirely.
+    paths:
+      - "authors/**"
+      - ".gitmodules"
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 permissions:
