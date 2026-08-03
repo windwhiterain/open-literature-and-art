@@ -181,6 +181,23 @@ fn test_full_build() {
         "author data missing"
     );
 
+    // About page: nav link on homepage + the page exists with key content
+    assert!(
+        index_html.contains("about.html"),
+        "about nav link missing from homepage"
+    );
+    let about_path = out_dir.join("about.html");
+    assert!(about_path.exists(), "about.html missing");
+    let about_html = fs::read_to_string(&about_path).unwrap();
+    assert!(
+        about_html.contains("关于本站"),
+        "about page content missing"
+    );
+    assert!(
+        about_html.contains("class=\"active\""),
+        "about page nav active state missing"
+    );
+
     // Author page
     let author_index = out_dir.join("a/alice/index.html");
     assert!(author_index.exists(), "author page missing");

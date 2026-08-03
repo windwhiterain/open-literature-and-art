@@ -7,6 +7,11 @@ pub mod paths;
 pub mod render;
 pub mod scan;
 
+/// The about page content, baked into the binary so that soil CLI
+/// (which runs sitegen in-process from an arbitrary work_dir) always
+/// has a default about page even when `pages/about.md` is absent.
+const ABOUT_MD: &str = include_str!("../pages/about.md");
+
 pub struct Config {
     pub authors_dir: PathBuf,
     pub out_dir: PathBuf,
@@ -25,7 +30,14 @@ pub fn run(config: &Config) -> BuildSummary {
     let (site, mut warnings) = scan::scan(&config.authors_dir);
 
     // 2. Render all HTML pages (random picks happen client-side via JS)
-    let pages = render::render_site(&site);
+    let mut pages = render::render_site(&site);
+
+    // 2b. About page embedded in the binary (same approach as the CSS shell)
+    let about_html = content::render_markdown(ABOUT_MD);
+    pages.push((
+        "about.html".to_string(),
+        render::render_about_page(&about_html),
+    ));
 
     // 4. Write pages to out_dir
     let out = &config.out_dir;

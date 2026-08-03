@@ -74,13 +74,14 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 
 ## 页面结构约定
 
-- 所有页面顶部导航栏：站点名「开源文艺」+ 文章/作者按钮，当前页加 `class="active"`
+- 所有页面顶部导航栏：站点名「开源文艺」+ 文章/作者/关于三个按钮，当前页加 `class="active"`
 - 内容页（文章/文集/章节）标题下方必须有 `作者: [链接]`（`.author-line`）
 - **列表项是卡片**：整卡可点击——作者页/文集章节列表用 `<a class="card">` 包住标题（`.card-title`）+ 日期 + 摘要；首页「文章」卡片是 `<div class="card">` + 内嵌 `.stretched` 链接（`::after` 覆盖整卡）+ 作者名链接（`.list-author`，直接显示名字无前缀）——**不要在卡片 `<a>` 里再嵌套 `<a>`（HTML 非法），首页卡片必须用 div+stretched 结构**
 - **全站禁用斜体**：CSS 有全局 `em{font-style:normal}`；列表摘要/空状态/引文样式（`.list-summary`/`.empty-state`/`.summary`）均不加 `font-style:italic`
 - 作者页标题下若有 `.gitmodules` 条目，渲染 `<p class="repo-line">Git 仓库: <a target="_blank" rel="noopener">`
 - 底部：**仅章节页**有「← 上一章 / 下一章 →」（`.chapter-nav`，首末章用空 `.placeholder` 占位）；独立文章页和文集页底部无任何链接
 - 面包屑保留（首页 / 作者 / 文集 / 章节）
+- 关于页（`about.html`）内容来自 `pages/about.md`（构建时渲染为 HTML），修改内容直接编辑该 markdown 文件。`ABOUT_MD` 通过 `include_str!` 嵌入二进制——和 CSS/HTML 壳一样，不读运行时文件
 
 ## 陷阱
 

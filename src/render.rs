@@ -194,6 +194,7 @@ fn html_escape(s: &str) -> String {
 enum ActiveNav {
     Articles,
     Authors,
+    About,
     None,
 }
 
@@ -232,6 +233,11 @@ fn page(
     } else {
         format!("{prefix}/authors.html")
     };
+    let about_href = if depth == 0 {
+        "about.html".to_string()
+    } else {
+        format!("{prefix}/about.html")
+    };
 
     let topbar = format!(
         r#"<header class="topbar">
@@ -239,6 +245,7 @@ fn page(
 <nav class="topnav">
 <a href="{home_href}"{articles_active}>文章</a>
 <a href="{authors_href}"{authors_active}>作者</a>
+<a href="{about_href}"{about_active}>关于</a>
 </nav>
 </header>"#,
         articles_active = match active {
@@ -247,6 +254,10 @@ fn page(
         },
         authors_active = match active {
             ActiveNav::Authors => " class=\"active\"",
+            _ => "",
+        },
+        about_active = match active {
+            ActiveNav::About => " class=\"active\"",
             _ => "",
         },
     );
@@ -441,6 +452,30 @@ fn render_authors_page(authors: &[(String, String)]) -> String {
     );
 
     page("作者", 0, ActiveNav::Authors, &[], &body, None)
+}
+
+// ── about page ──
+
+/// Build the about page shell around rendered markdown content.
+/// The body_html is the full rendered HTML (including H1) from pages/about.md.
+pub fn render_about_page(body_html: &str) -> String {
+    page(
+        "关于",
+        0,
+        ActiveNav::About,
+        &[
+            Crumb {
+                label: "首页".into(),
+                href: Some("index.html".into()),
+            },
+            Crumb {
+                label: "关于".into(),
+                href: None,
+            },
+        ],
+        body_html,
+        Some("开源文艺——一个去中心化、永久存续的文学创作分享平台。了解站点的运作方式与设计理念。"),
+    )
 }
 
 // ── author page ──
