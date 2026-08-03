@@ -100,7 +100,6 @@ fn scan_author(dir: &Path, name: &str, warnings: &mut Vec<String>) -> Author {
             let out_name = paths::safe_filename(&fname_str);
             let meta = load_soil_toml(dir, &out_name, warnings);
             if meta.draft {
-                warnings.push(format!("跳过草稿: {out_name}"));
                 continue;
             }
             articles.push(Article {
@@ -138,7 +137,6 @@ fn scan_author(dir: &Path, name: &str, warnings: &mut Vec<String>) -> Author {
         if is_collection {
             let meta = load_soil_toml(dir, &dname_str, warnings);
             if meta.draft {
-                warnings.push(format!("跳过草稿: {dname_str}"));
                 continue;
             }
             // Natural-sort chapters
@@ -225,7 +223,6 @@ fn scan_dir_as_content(
         let (fname, fpath) = md_entries.into_iter().next().unwrap();
         let meta = load_soil_toml(author_dir, dir_name, parent_warnings);
         if meta.draft {
-            parent_warnings.push(format!("跳过草稿: {dir_name}"));
             return (Vec::new(), Vec::new(), Vec::new(), false, warnings);
         }
         let depth = 3; // a/<author>/<dirname>/index.html
@@ -269,7 +266,6 @@ fn scan_dir_as_content(
             let out_name = paths::safe_filename(&fname);
             let meta = load_soil_toml(dir, &out_name, parent_warnings);
             if meta.draft {
-                parent_warnings.push(format!("跳过草稿: {dir_name}/{out_name}"));
                 continue;
             }
             chapters.push(Chapter {
