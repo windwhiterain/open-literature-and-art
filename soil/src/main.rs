@@ -16,9 +16,16 @@ const UPSTREAM_REPO: &str = "open-literature-and-art";
 fn main() {
     // Check for subcommands
     let args: Vec<String> = std::env::args().collect();
-    if args.len() >= 2 && args[1] == "meta" {
-        meta::run();
-        return;
+    match args.get(1).map(String::as_str) {
+        Some("meta") => {
+            meta::run();
+            return;
+        }
+        Some("preview") => {
+            wizard::run_preview(args.get(2).map(String::as_str));
+            return;
+        }
+        _ => {}
     }
 
     // Capture Ctrl+C: don't let it terminate the process (it's copy, not quit).

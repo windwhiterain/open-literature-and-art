@@ -1,7 +1,7 @@
 use crate::git;
 use crate::github::{Auth, GitHubRepo, GitHubUser, PullRequest};
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // ── Prompt helpers ──
 //
@@ -184,6 +184,36 @@ pub fn run(
         author_name,
         pr_url,
     })
+}
+
+/// `soil preview [目录]`: build the site from the local `authors/` content
+/// and open it in the browser. No git operations at all — the directory must
+/// already contain the content (e.g. a checkout of the upstream repo).
+pub fn run_preview(dir_arg: Option<&str>) {
+    let dir = match dir_arg {
+        Some(d) => PathBuf::from(d),
+        None => match std::env::current_dir() {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("无法确定当前目录: {e}");
+                std::process::exit(1);
+            }
+        },
+    };
+    if !dir.join("authors").is_dir() {
+        eprintln!(
+            "错误: 未找到 authors/ 目录。\n请在「开源文艺」仓库根目录运行 soil preview，\
+             或指定目录: soil preview <目录>"
+        );
+        std::process::exit(1);
+    }
+    match sitegen_build_and_open(&dir) {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!("错误: {e}");
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Build the site in `work_dir` (via the bundled sitegen library) and open

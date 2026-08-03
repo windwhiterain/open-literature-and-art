@@ -2,7 +2,7 @@
 
 Cargo workspace，两个 crate：
 - **sitegen**（根，`src/`）：静态站点生成器，把 `authors/<author>/` 下的中文 markdown 构建为 GitHub Pages 静态站点。无模板引擎，HTML 用 `format!` 生成，随机逻辑在浏览器端 JS。同时是 lib（`sitegen::run`）和 bin。
-- **soil**（`soil/`）：CLI 向导，帮非程序员把文稿提交到本仓库（登录 → 文稿仓库 → fork/直推 → git submodule → PR → 本地预览）。**内嵌 sitegen 库**（`soil/Cargo.toml` 依赖 `sitegen = { path = ".." }`），用户只需单个 soil 二进制。
+- **soil**（`soil/`）：CLI 向导，帮非程序员把文稿提交到本仓库（登录 → 文稿仓库 → fork/直推 → git submodule → PR → 本地预览）。**内嵌 sitegen 库**（`soil/Cargo.toml` 依赖 `sitegen = { path = ".." }`），用户只需单个 soil 二进制。子命令：`soil meta`（生成 `.soil.toml` 模板，不联网）、`soil preview [目录]`（纯本地构建 + 浏览器预览，**零 git 操作**，默认当前目录，要求目录含 `authors/`；复用 `wizard.rs::sitegen_build_and_open`）。
 
 ## 构建与验证命令
 
