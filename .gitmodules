@@ -1,6 +1,3 @@
-[submodule "authors/literature-and-art"]
-	path = authors/literature-and-art
-	url = https://github.com/windwhiterain/literature-and-art
 [submodule "authors/whiting"]
 	path = authors/whiting
 	url = https://github.com/windwhiterain/literature-and-art
