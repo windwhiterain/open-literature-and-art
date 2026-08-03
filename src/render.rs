@@ -17,6 +17,7 @@ h3{font-size:1.15rem;margin:1.5rem 0 .5rem}
 p{margin:.8em 0}
 a{color:#1a5fbf;text-decoration:none}
 a:hover{text-decoration:underline}
+em{font-style:normal}
 ul,ol{padding-left:1.5rem;margin:.8em 0}
 li{margin:.3em 0}
 blockquote{border-left:3px solid #ddd;margin:1em 0;padding:.3em 1em;color:#555}
@@ -28,15 +29,18 @@ hr{border:none;border-top:1px solid #eee;margin:2rem 0}
 img{max-width:100%;height:auto;border-radius:4px}
 .author-intro{margin-bottom:2rem;padding:1rem;background:#fafafa;border-radius:6px;font-size:16px}
 .article-list{list-style:none;padding:0}
-.article-list li{margin:.5em 0;padding:.5em 0;border-bottom:1px solid #f0f0f0}
-.article-list a{font-size:1.1rem}
+.article-list li{margin:.7rem 0}
+.article-list a.card{display:block;padding:.85rem 1rem;background:#fafafa;border:1px solid #eee;border-radius:8px;color:#222;text-decoration:none;transition:background .15s,border-color .15s}
+.article-list a.card:hover{background:#f2f2f2;border-color:#ddd;text-decoration:none}
+.article-list a.card:focus-visible{outline:2px solid #1a5fbf;outline-offset:2px}
+.card-title{font-size:1.1rem}
 .list-date{font-size:13px;color:#999;margin-left:.5em}
-.list-summary{font-size:14px;color:#666;margin:.2em 0 0;font-style:italic}
-.empty-state{color:#999;font-style:italic;text-align:center;padding:2rem}
+.list-summary{font-size:14px;color:#666;margin:.2em 0 0}
+.empty-state{color:#999;text-align:center;padding:2rem}
 .author-line{text-align:center;color:#888;font-size:15px;margin:0 0 1.5rem}
 .author-line a{color:#555}
 .article-meta{text-align:center;color:#999;font-size:14px;margin:.3rem 0 1rem}
-.summary{font-style:italic;color:#555;border-left:3px solid #eee;padding:.3em 1em;margin:0 0 1.5em;font-size:16px}
+.summary{color:#555;border-left:3px solid #eee;padding:.3em 1em;margin:0 0 1.5em;font-size:16px}
 .chapter-nav{display:flex;justify-content:space-between;margin-top:2.5rem;font-size:15px}
 .chapter-nav a{color:#555}
 .chapter-nav .placeholder{visibility:hidden}
@@ -319,20 +323,24 @@ fn render_articles_page(articles: &[ListEntry]) -> String {
       const li = document.createElement('li');
       const a = document.createElement('a');
       a.href = it.h;
-      a.textContent = it.t;
-      li.appendChild(a);
+      a.className = 'card';
+      const t = document.createElement('span');
+      t.className = 'card-title';
+      t.textContent = it.t;
+      a.appendChild(t);
       if (it.d) {{
         const span = document.createElement('span');
         span.className = 'list-date';
         span.textContent = ' ' + it.d;
-        li.appendChild(span);
+        a.appendChild(span);
       }}
       if (it.s) {{
         const p = document.createElement('p');
         p.className = 'list-summary';
         p.textContent = it.s;
-        li.appendChild(p);
+        a.appendChild(p);
       }}
+      li.appendChild(a);
       list.appendChild(li);
     }});
   }}
@@ -382,7 +390,11 @@ fn render_authors_page(authors: &[(String, String)]) -> String {
       const li = document.createElement('li');
       const a = document.createElement('a');
       a.href = it.h;
-      a.textContent = it.t;
+      a.className = 'card';
+      const t = document.createElement('span');
+      t.className = 'card-title';
+      t.textContent = it.t;
+      a.appendChild(t);
       li.appendChild(a);
       list.appendChild(li);
     }});
@@ -446,7 +458,7 @@ fn render_author_page(author: &Author) -> String {
         body.push_str(r#"<ul class="article-list">"#);
         for item in items {
             body.push_str(&format!(
-                "<li><a href=\"{href}\">{title}</a>",
+                "<li><a class=\"card\" href=\"{href}\"><span class=\"card-title\">{title}</span>",
                 href = item.href,
                 title = item.title,
             ));
@@ -462,7 +474,7 @@ fn render_author_page(author: &Author) -> String {
                     html_escape(summary)
                 ));
             }
-            body.push_str("</li>");
+            body.push_str("</a></li>");
         }
         body.push_str("</ul>");
     }
@@ -566,7 +578,10 @@ fn render_collection_page(collection: &Collection, author: &Author) -> String {
         body.push_str(r#"<ul class="article-list">"#);
         for ch in &collection.chapters {
             let href = ch.out_path.split('/').next_back().unwrap_or(&ch.file_name);
-            body.push_str(&format!("<li><a href=\"./{href}\">{}</a></li>", ch.title));
+            body.push_str(&format!(
+                "<li><a class=\"card\" href=\"./{href}\"><span class=\"card-title\">{}</span></a></li>",
+                ch.title
+            ));
         }
         body.push_str("</ul>");
     }
