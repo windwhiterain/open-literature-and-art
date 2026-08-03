@@ -29,6 +29,13 @@ fn setup_fixture(tmp: &Path) {
     let alice = authors.join("alice");
     fs::create_dir_all(&alice).unwrap();
 
+    // Author repo link comes from the repo-root .gitmodules
+    fs::write(
+        tmp.join(".gitmodules"),
+        "[submodule \"authors/alice\"]\n\tpath = authors/alice\n\turl = https://github.com/example/alice.git\n",
+    )
+    .unwrap();
+
     fs::write(
         alice.join("README.md"),
         "# About Alice\n\nAlice is a writer.\n",
@@ -149,6 +156,15 @@ fn test_full_build() {
         index_html.contains("s:\"一篇随笔\""),
         "article summary missing from homepage data"
     );
+    // Homepage cards carry the author name + author page link
+    assert!(
+        index_html.contains("au:\"alice\""),
+        "author name missing from homepage data"
+    );
+    assert!(
+        index_html.contains("ah:\"a/alice/index.html\""),
+        "author href missing from homepage data"
+    );
     // Draft article excluded from homepage
     assert!(
         !index_html.contains("草稿"),
@@ -173,6 +189,15 @@ fn test_full_build() {
     assert!(
         author_html.contains("topnav"),
         "top nav missing on author page"
+    );
+    // Author git repo link from .gitmodules (trailing .git stripped)
+    assert!(
+        author_html.contains("Git 仓库"),
+        "repo link missing on author page"
+    );
+    assert!(
+        author_html.contains("https://github.com/example/alice\""),
+        "repo URL missing on author page"
     );
 
     // Author page mixes articles and collections in one sorted list
@@ -217,6 +242,11 @@ fn test_full_build() {
     assert!(
         !author_html.contains("草稿"),
         "draft article must not appear on author page"
+    );
+    // Author page list shows no per-item author names (homepage cards only)
+    assert!(
+        !list_html.contains("list-author"),
+        "author page list must not show author names"
     );
 
     // Standalone article: author link at top, NO bottom links

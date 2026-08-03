@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -9,6 +10,9 @@ use crate::paths;
 pub fn scan(authors_dir: &Path) -> (Site, Vec<String>) {
     let mut warnings = Vec::new();
     let mut authors = Vec::new();
+
+    // Repo-root .gitmodules maps author submodule paths to their repo URLs
+    let gitmodules = load_gitmodules(authors_dir);
 
     let entries = match fs::read_dir(authors_dir) {
         Ok(e) => e,
@@ -31,7 +35,8 @@ pub fn scan(authors_dir: &Path) -> (Site, Vec<String>) {
             continue;
         }
 
-        authors.push(scan_author(&path, &name_str, &mut warnings));
+        let repo = gitmodules.get(&format!("authors/{name_str}")).cloned();
+        authors.push(scan_author(&path, &name_str, repo, &mut warnings));
     }
 
     // Sort authors by name (lexicographic)
@@ -40,7 +45,55 @@ pub fn scan(authors_dir: &Path) -> (Site, Vec<String>) {
     (Site { authors }, warnings)
 }
 
-fn scan_author(dir: &Path, name: &str, warnings: &mut Vec<String>) -> Author {
+/// Map submodule path → repo URL from the repo-root `.gitmodules` file
+/// (e.g. "authors/whiting" → "https://github.com/..."). Missing file → empty map.
+fn load_gitmodules(authors_dir: &Path) -> HashMap<String, String> {
+    let path = authors_dir
+        .parent()
+        .unwrap_or(Path::new(""))
+        .join(".gitmodules");
+    match fs::read_to_string(path) {
+        Ok(content) => parse_gitmodules(&content),
+        Err(_) => HashMap::new(),
+    }
+}
+
+fn parse_gitmodules(content: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let mut current: Option<String> = None;
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(rest) = line
+            .strip_prefix("[submodule ")
+            .and_then(|s| s.strip_suffix(']'))
+        {
+            current = Some(rest.trim_matches('"').to_string());
+        } else if let Some(sub) = &current
+            && let Some((k, v)) = line.split_once('=')
+            && k.trim() == "url"
+            && let Some(url) = normalize_repo_url(v)
+        {
+            map.insert(sub.clone(), url);
+        }
+    }
+    map
+}
+
+/// Make a `.gitmodules` URL browser-usable: convert SSH form
+/// (`git@host:owner/repo`) to https and drop a trailing `.git`.
+fn normalize_repo_url(s: &str) -> Option<String> {
+    let s = s.trim();
+    let url = if let Some((host, path)) = s.strip_prefix("git@").and_then(|s| s.split_once(':')) {
+        format!("https://{host}/{path}")
+    } else if s.starts_with("https://") || s.starts_with("http://") {
+        s.to_string()
+    } else {
+        return None;
+    };
+    Some(url.strip_suffix(".git").unwrap_or(&url).to_string())
+}
+
+fn scan_author(dir: &Path, name: &str, repo: Option<String>, warnings: &mut Vec<String>) -> Author {
     let mut intro_html = None;
     let mut articles = Vec::new();
     let mut collections = Vec::new();
@@ -52,6 +105,7 @@ fn scan_author(dir: &Path, name: &str, warnings: &mut Vec<String>) -> Author {
             warnings.push(format!("cannot read author dir {}: {e}", name));
             return Author {
                 name: name.to_string(),
+                repo,
                 intro_html: None,
                 articles,
                 collections,
@@ -163,6 +217,7 @@ fn scan_author(dir: &Path, name: &str, warnings: &mut Vec<String>) -> Author {
 
     Author {
         name: name.to_string(),
+        repo,
         intro_html,
         articles,
         collections,
@@ -393,5 +448,43 @@ fn read_and_render(
             warnings.push(format!("cannot read {}: {e}", path.display()));
             String::new()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_gitmodules_https() {
+        let content = r#"[submodule "authors/whiting"]
+	path = authors/whiting
+	url = https://github.com/windwhiterain/literature-and-art.git
+"#;
+        let map = parse_gitmodules(content);
+        assert_eq!(
+            map.get("authors/whiting").map(String::as_str),
+            Some("https://github.com/windwhiterain/literature-and-art")
+        );
+    }
+
+    #[test]
+    fn parse_gitmodules_ssh() {
+        let content = r#"[submodule "authors/alice"]
+	path = authors/alice
+	url = git@github.com:alice/manuscripts.git
+"#;
+        let map = parse_gitmodules(content);
+        assert_eq!(
+            map.get("authors/alice").map(String::as_str),
+            Some("https://github.com/alice/manuscripts")
+        );
+    }
+
+    #[test]
+    fn normalize_repo_url_rejects_non_urls() {
+        assert_eq!(normalize_repo_url(""), None);
+        assert_eq!(normalize_repo_url("not a url"), None);
+        assert_eq!(normalize_repo_url("../local/repo"), None);
     }
 }

@@ -9,6 +9,8 @@ pub struct Site {
 pub struct Author {
     /// Directory name, e.g. "whiting"
     pub name: String,
+    /// Git repo URL from the repo-root .gitmodules (if this author is a submodule)
+    pub repo: Option<String>,
     /// Rendered README.md if present (not listed as an article)
     pub intro_html: Option<String>,
     /// Standalone articles (top-level .md or single-name-match dir-based)

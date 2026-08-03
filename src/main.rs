@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let mut authors_dir = PathBuf::from("authors");
@@ -61,4 +61,29 @@ fn main() {
     if !summary.warnings.is_empty() {
         std::process::exit(1);
     }
+
+    open_in_browser(&config.out_dir.join("index.html"));
+}
+
+/// Open the built index.html in the default browser.
+/// Skipped on CI (GitHub Actions sets CI=true) so the deploy pipeline
+/// never tries to launch a browser; failures are ignored like in soil.
+fn open_in_browser(index_path: &Path) {
+    if env::var_os("CI").is_some() {
+        return;
+    }
+    let path = index_path
+        .canonicalize()
+        .unwrap_or_else(|_| index_path.to_path_buf())
+        .to_string_lossy()
+        .into_owned();
+    eprintln!("Opening browser: {path}");
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("cmd")
+        .args(["/c", "start", "", &path])
+        .spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(&path).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
 }

@@ -10,9 +10,9 @@ Cargo workspace，两个 crate：
 ## 构建与验证命令
 
 ```sh
-cargo run -- --out-dir dist            # 构建站点到 dist/（根 member 默认 sitegen）
+cargo run -- --out-dir dist            # 构建站点到 dist/（根 member 默认 sitegen）；成功后自动开浏览器预览 dist/index.html（`CI` 环境变量存在时跳过，CI 不会弹浏览器）
 cargo run -- --out-dir dist --check-links  # 构建 + 校验所有 href/src 无断链（CI 同款）
-cargo test                             # sitegen 8 单元测试 + 1 集成测试（tests/build_site.rs，临时目录 fixture）
+cargo test                             # sitegen 11 单元测试 + 1 集成测试（tests/build_site.rs，临时目录 fixture）
 cargo build -p soil                    # soil 无测试，编译通过即可
 cargo fmt --check                      # CI 门槛
 cargo clippy -- -D warnings            # CI 门槛（两个 crate 一起查）
@@ -59,6 +59,7 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 - 子目录有 ≥2 个 `.md`，或唯一 `.md` 与目录名不同 → 文集（章节列表），例如 `地方教育/大纲.md`
 - `README.md` → 作者页介绍，不列为文章
 - 非 `.md` 文件 → 资源，复制到 `files/<author>/...`
+- 作者页的 **Git 仓库链接**来自仓库根 `.gitmodules`（`load_gitmodules`/`normalize_repo_url`）：SSH 格式（`git@github.com:...`）自动转 https、去尾部 `.git`；无条目或不合法 URL → 作者页不显示该行
 
 ## 链接约定（render.rs / paths.rs）
 
@@ -75,6 +76,9 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 
 - 所有页面顶部导航栏：站点名「开源文艺」+ 文章/作者按钮，当前页加 `class="active"`
 - 内容页（文章/文集/章节）标题下方必须有 `作者: [链接]`（`.author-line`）
+- **列表项是卡片**：整卡可点击——作者页/文集章节列表用 `<a class="card">` 包住标题（`.card-title`）+ 日期 + 摘要；首页「文章」卡片是 `<div class="card">` + 内嵌 `.stretched` 链接（`::after` 覆盖整卡）+ 作者名链接（`.list-author`，直接显示名字无前缀）——**不要在卡片 `<a>` 里再嵌套 `<a>`（HTML 非法），首页卡片必须用 div+stretched 结构**
+- **全站禁用斜体**：CSS 有全局 `em{font-style:normal}`；列表摘要/空状态/引文样式（`.list-summary`/`.empty-state`/`.summary`）均不加 `font-style:italic`
+- 作者页标题下若有 `.gitmodules` 条目，渲染 `<p class="repo-line">Git 仓库: <a target="_blank" rel="noopener">`
 - 底部：**仅章节页**有「← 上一章 / 下一章 →」（`.chapter-nav`，首末章用空 `.placeholder` 占位）；独立文章页和文集页底部无任何链接
 - 面包屑保留（首页 / 作者 / 文集 / 章节）
 
@@ -82,7 +86,7 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 
 - **UTF-8**：遍历 HTML 字节时必须按字符推进（`bytes[i] as char` 会破坏中文——已修过的 bug）。`content.rs::rewrite_links` 做本地图片路径重写，测试必须覆盖中文内容
 - **BOM**：`render_markdown` 开头 `trim_start_matches('\u{feff}')`——Windows 记事本/PowerShell 保存 UTF-8 会写 BOM，不剥会导致首行 `#` 标题失效（已修过的 bug，有回归测试）
-- `--check-links` 扫描 `href="` / `src="` 模式；CSS 常量里的类名不影响（只匹配属性写法）
+- `--check-links` 扫描 `href="` / `src="` 模式；CSS 常量里的类名不影响（只匹配属性写法）；`http(s)`/`mailto:`/`#`/`data:` 开头的外部链接跳过不校验（作者 repo 外链不会被查）
 - **子模块残留**：上游移除某子模块（删 `.gitmodules` 条目 + gitlink）后，已 checkout 的 `authors/<name>/` 目录（含 `.git` 文件）会留在工作副本里，下次 `git add -A` 会把它重新暂存成无 URL 的 gitlink，CI 的 `submodule update` 直接报 "No url found for submodule path"（已修过的 bug：`soil/src/git.rs::remove_stale_submodules` 在暂存前清理；改 soil 的提交逻辑时不要绕过它）
 - Windows 开发环境：输出路径一律用 `/` 拼接，不要依赖 `Path::display()`
 - soil 无测试；改 soil 后验证 = build + fmt + clippy
@@ -92,6 +96,6 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 `.github/workflows/deploy.yml`：
 - 触发分支是 **`v1`**（不是 main），`workflow_dispatch` 也可
 - **dirty-only 触发**：paths 过滤——仅 `authors/**`、`.gitmodules`、`src/**`、`Cargo.toml`、`Cargo.lock`、workflow 自身变更时构建部署；只改 soil/README 等不会触发（soil 编译由 release.yml 的 `**/*.rs` 覆盖）
-- checkout 必须 `submodules: recursive`（`authors/whiting`、`authors/test_user` 等是 git 子模块）
+- checkout 必须 `submodules: recursive`（当前仅 `authors/whiting` 是子模块；`authors/test_user` 只是本地未跟踪的空目录残留，CI checkout 不存在）
 - 上传 `dist/` → GitHub Pages；仓库 Settings → Pages → Source 需手动设为 "GitHub Actions"（YAML 无法配置）
 - `dist/` 和 `target/` 已 gitignore

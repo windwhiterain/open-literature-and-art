@@ -1,7 +1,7 @@
 use crate::model::{Article, Author, Chapter, Collection, Site};
 use crate::paths;
 
-const CSS: &str = r#"*{box-sizing:border-box;margin:0;padding:0}body{font-family:"Songti SC","Noto Serif CJK SC","SimSun",serif;line-height:1.9;color:#222;background:#fff;max-width:42rem;margin:0 auto;padding:1.5rem 1rem;font-size:18px}
+const CSS: &str = r#"*{box-sizing:border-box;margin:0;padding:0}body{font-family:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC","SimHei",sans-serif;line-height:1.9;color:#222;background:#fff;max-width:42rem;margin:0 auto;padding:1.5rem 1rem;font-size:18px}
 .topbar{display:flex;justify-content:space-between;align-items:baseline;padding-bottom:.5rem;border-bottom:1px solid #eee;margin-bottom:1.5rem}
 .topbar .site-name{font-size:1.15rem;font-weight:700;color:#222;text-decoration:none}
 .topnav a{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#555;text-decoration:none;margin-left:1rem;font-size:15px}
@@ -30,15 +30,23 @@ img{max-width:100%;height:auto;border-radius:4px}
 .author-intro{margin-bottom:2rem;padding:1rem;background:#fafafa;border-radius:6px;font-size:16px}
 .article-list{list-style:none;padding:0}
 .article-list li{margin:.7rem 0}
-.article-list a.card{display:block;padding:.85rem 1rem;background:#fafafa;border:1px solid #eee;border-radius:8px;color:#222;text-decoration:none;transition:background .15s,border-color .15s}
-.article-list a.card:hover{background:#f2f2f2;border-color:#ddd;text-decoration:none}
+.article-list .card{display:block;position:relative;padding:.85rem 1rem;background:#fafafa;border:1px solid #eee;border-radius:8px;color:#222;text-decoration:none;transition:background .15s,border-color .15s}
+.article-list .card:hover{background:#f2f2f2;border-color:#ddd;text-decoration:none}
 .article-list a.card:focus-visible{outline:2px solid #1a5fbf;outline-offset:2px}
+.article-list .card:has(.stretched:focus-visible){outline:2px solid #1a5fbf;outline-offset:2px}
+.card .stretched{color:inherit;text-decoration:none}
+.card .stretched:focus-visible{outline:none}
+.card .stretched::after{content:'';position:absolute;inset:0}
 .card-title{font-size:1.1rem}
 .list-date{font-size:13px;color:#999;margin-left:.5em}
+.list-author{font-size:13px;margin-left:.8em}
+.list-author a{color:#555;position:relative;z-index:1}
 .list-summary{font-size:14px;color:#666;margin:.2em 0 0}
 .empty-state{color:#999;text-align:center;padding:2rem}
 .author-line{text-align:center;color:#888;font-size:15px;margin:0 0 1.5rem}
 .author-line a{color:#555}
+.repo-line{text-align:center;color:#888;font-size:15px;margin:0 0 1.5rem}
+.repo-line a{color:#555}
 .article-meta{text-align:center;color:#999;font-size:14px;margin:.3rem 0 1rem}
 .summary{color:#555;border-left:3px solid #eee;padding:.3em 1em;margin:0 0 1.5em;font-size:16px}
 .chapter-nav{display:flex;justify-content:space-between;margin-top:2.5rem;font-size:15px}
@@ -105,6 +113,9 @@ struct ListEntry {
     href: String,
     date: Option<String>,
     summary: Option<String>,
+    /// Author name + link to their author page (homepage cards only)
+    author: Option<String>,
+    author_href: Option<String>,
 }
 
 /// Collect top-level article pages: standalone articles + collections
@@ -118,6 +129,8 @@ fn collect_articles(site: &Site) -> Vec<ListEntry> {
                 href: a.out_path.clone(),
                 date: a.date.clone(),
                 summary: a.summary.clone(),
+                author: Some(author.name.clone()),
+                author_href: Some(format!("a/{}/index.html", author.name)),
             });
         }
         for c in &author.collections {
@@ -126,6 +139,8 @@ fn collect_articles(site: &Site) -> Vec<ListEntry> {
                 href: format!("{}/index.html", c.out_dir),
                 date: c.date.clone(),
                 summary: c.summary.clone(),
+                author: Some(author.name.clone()),
+                author_href: Some(format!("a/{}/index.html", author.name)),
             });
         }
     }
@@ -281,13 +296,19 @@ fn render_articles_page(articles: &[ListEntry]) -> String {
         .iter()
         .map(|e| {
             format!(
-                "{{t:{},h:{},d:{},s:{}}}",
+                "{{t:{},h:{},d:{},s:{},au:{},ah:{}}}",
                 js_string(&e.title),
                 js_string(&e.href),
                 e.date
                     .as_deref()
                     .map_or_else(|| "null".to_string(), js_string),
                 e.summary
+                    .as_deref()
+                    .map_or_else(|| "null".to_string(), js_string),
+                e.author
+                    .as_deref()
+                    .map_or_else(|| "null".to_string(), js_string),
+                e.author_href
                     .as_deref()
                     .map_or_else(|| "null".to_string(), js_string),
             )
@@ -321,26 +342,38 @@ fn render_articles_page(articles: &[ListEntry]) -> String {
     }}
     shuffle(items).slice(0, 10).forEach(function (it) {{
       const li = document.createElement('li');
+      const card = document.createElement('div');
+      card.className = 'card';
       const a = document.createElement('a');
       a.href = it.h;
-      a.className = 'card';
+      a.className = 'stretched';
       const t = document.createElement('span');
       t.className = 'card-title';
       t.textContent = it.t;
       a.appendChild(t);
+      card.appendChild(a);
       if (it.d) {{
         const span = document.createElement('span');
         span.className = 'list-date';
         span.textContent = ' ' + it.d;
-        a.appendChild(span);
+        card.appendChild(span);
+      }}
+      if (it.au) {{
+        const span = document.createElement('span');
+        span.className = 'list-author';
+        const la = document.createElement('a');
+        la.href = it.ah;
+        la.textContent = it.au;
+        span.appendChild(la);
+        card.appendChild(span);
       }}
       if (it.s) {{
         const p = document.createElement('p');
         p.className = 'list-summary';
         p.textContent = it.s;
-        a.appendChild(p);
+        card.appendChild(p);
       }}
-      li.appendChild(a);
+      li.appendChild(card);
       list.appendChild(li);
     }});
   }}
@@ -415,6 +448,12 @@ fn render_authors_page(authors: &[(String, String)]) -> String {
 fn render_author_page(author: &Author) -> String {
     let mut body = format!("<h1>{}</h1>", author.name);
 
+    if let Some(repo) = &author.repo {
+        body.push_str(&format!(
+            "\n<p class=\"repo-line\">Git 仓库: <a href=\"{repo}\" target=\"_blank\" rel=\"noopener\">{repo}</a></p>"
+        ));
+    }
+
     if let Some(ref intro) = author.intro_html {
         body.push_str(&format!("<div class=\"author-intro\">{intro}</div>"));
     }
@@ -439,6 +478,8 @@ fn render_author_page(author: &Author) -> String {
             href,
             date: a.date.clone(),
             summary: a.summary.clone(),
+            author: None,
+            author_href: None,
         });
     }
     for c in &author.collections {
@@ -448,6 +489,8 @@ fn render_author_page(author: &Author) -> String {
             href: format!("./{dir_name}/index.html"),
             date: c.date.clone(),
             summary: c.summary.clone(),
+            author: None,
+            author_href: None,
         });
     }
     items.sort_by(|a, b| a.title.cmp(&b.title));
