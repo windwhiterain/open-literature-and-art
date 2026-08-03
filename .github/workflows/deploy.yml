@@ -36,6 +36,9 @@ jobs:
       - name: Build site
         run: cargo run --release -- --out-dir dist --check-links
 
+      - name: Check soil compiles
+        run: cargo build -p soil --release
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 

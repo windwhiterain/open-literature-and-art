@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 description = "Static site generator: markdown literature -> GitHub Pages site"
 
+[workspace]
+members = [".", "soil"]
+
 [dependencies]
 pulldown-cmark = "0.13"
 walkdir = "2"
