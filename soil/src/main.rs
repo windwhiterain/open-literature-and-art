@@ -1,5 +1,6 @@
 mod git;
 mod github;
+mod meta;
 mod wizard;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +14,13 @@ const UPSTREAM_OWNER: &str = "windwhiterain";
 const UPSTREAM_REPO: &str = "open-literature-and-art";
 
 fn main() {
+    // Check for subcommands
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() >= 2 && args[1] == "meta" {
+        meta::run();
+        return;
+    }
+
     // Capture Ctrl+C: don't let it terminate the process (it's copy, not quit).
     if let Err(e) = ctrlc::set_handler(|| {
         CTRL_C_PRESSED.store(true, Ordering::SeqCst);

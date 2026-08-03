@@ -35,6 +35,15 @@ fn setup_fixture(tmp: &Path) {
     )
     .unwrap();
     fs::write(alice.join("随笔.md"), "# 随笔\n\nSome content here.\n").unwrap();
+    fs::write(
+        alice.join("随笔.soil.toml"),
+        "date = \"2024-03-15\"\nsummary = \"一篇随笔\"\n",
+    )
+    .unwrap();
+
+    // Draft article: has .soil.toml with draft = true → skipped from build
+    fs::write(alice.join("草稿.md"), "# 草稿\n\n未完成。\n").unwrap();
+    fs::write(alice.join("草稿.soil.toml"), "draft = true\n").unwrap();
 
     let wenji = alice.join("文集");
     fs::create_dir_all(&wenji).unwrap();
@@ -49,6 +58,17 @@ fn setup_fixture(tmp: &Path) {
     )
     .unwrap();
     fs::write(wenji.join("设定.md"), "# 设定\n\n世界观设定。\n").unwrap();
+    // Collection-level metadata + one chapter-level metadata file
+    fs::write(
+        alice.join("文集.soil.toml"),
+        "date = \"2024-01-01\"\nsummary = \"一个文集\"\n",
+    )
+    .unwrap();
+    fs::write(
+        wenji.join("第一章·开始.soil.toml"),
+        "date = \"2024-01-10\"\nsummary = \"开篇章节\"\n",
+    )
+    .unwrap();
 
     let story = alice.join("杨朔的愿望");
     fs::create_dir_all(&story).unwrap();
@@ -58,6 +78,12 @@ fn setup_fixture(tmp: &Path) {
     )
     .unwrap();
     fs::write(story.join("photo.png"), b"fake-png-data").unwrap();
+    // Auto-detected date with "?~" prefix: parser must strip it
+    fs::write(
+        alice.join("杨朔的愿望.soil.toml"),
+        "date = \"?~2023-06-01\"\nsummary = \"一个故事\"\n",
+    )
+    .unwrap();
 
     let outline = alice.join("大纲");
     fs::create_dir_all(&outline).unwrap();
@@ -114,6 +140,20 @@ fn test_full_build() {
         index_html.contains("class=\"active\""),
         "active nav missing"
     );
+    // Metadata in homepage JS items
+    assert!(
+        index_html.contains("d:\"2024-03-15\""),
+        "article date missing from homepage data"
+    );
+    assert!(
+        index_html.contains("s:\"一篇随笔\""),
+        "article summary missing from homepage data"
+    );
+    // Draft article excluded from homepage
+    assert!(
+        !index_html.contains("草稿"),
+        "draft article must not appear on homepage"
+    );
 
     // Authors page
     let authors_path = out_dir.join("authors.html");
@@ -165,6 +205,19 @@ fn test_full_build() {
         list_html.find("大纲").unwrap() < list_html.find("文集").unwrap(),
         "list must be sorted lexicographically"
     );
+    // Metadata rendered in author page list
+    assert!(
+        list_html.contains("class=\"list-date\">2024-03-15"),
+        "date missing from author list"
+    );
+    assert!(
+        list_html.contains("class=\"list-summary\">一篇随笔"),
+        "summary missing from author list"
+    );
+    assert!(
+        !author_html.contains("草稿"),
+        "draft article must not appear on author page"
+    );
 
     // Standalone article: author link at top, NO bottom links
     assert!(out_dir.join("a/alice/随笔.html").exists());
@@ -178,12 +231,43 @@ fn test_full_build() {
         !article_html.contains("class=\"back-link\""),
         "standalone article must not have bottom links"
     );
+    // Article metadata rendered
+    assert!(
+        article_html.contains("<meta name=\"description\" content=\"一篇随笔\">"),
+        "description meta missing"
+    );
+    assert!(
+        article_html.contains("class=\"article-meta\">2024-03-15"),
+        "article date missing"
+    );
+    assert!(
+        article_html.contains("class=\"summary\">一篇随笔"),
+        "article summary missing"
+    );
 
-    // Dir-based standalone article
+    // Draft article: not built at all
+    assert!(
+        !out_dir.join("a/alice/草稿.html").exists(),
+        "draft article must not be built"
+    );
+
+    // Dir-based standalone article with "?~" auto-detected date
     assert!(out_dir.join("a/alice/杨朔的愿望/index.html").exists());
     let story_html = fs::read_to_string(out_dir.join("a/alice/杨朔的愿望/index.html")).unwrap();
     assert!(story_html.contains("杨朔的愿望"));
     assert!(story_html.contains("author-line"));
+    assert!(
+        story_html.contains("class=\"article-meta\">2023-06-01"),
+        "?~ prefix not stripped from date"
+    );
+    assert!(
+        !story_html.contains("?~2023"),
+        "auto-detected ?~ marker must not leak into HTML"
+    );
+    assert!(
+        story_html.contains("class=\"summary\">一个故事"),
+        "dir-based article summary missing"
+    );
 
     // Collection: author link at top, NO bottom links
     let col_index = out_dir.join("a/alice/文集/index.html");
@@ -195,6 +279,19 @@ fn test_full_build() {
     assert!(
         !col_html.contains("class=\"back-link\""),
         "collection page must not have bottom links"
+    );
+    // Collection-level metadata rendered
+    assert!(
+        col_html.contains("<meta name=\"description\" content=\"一个文集\">"),
+        "collection description meta missing"
+    );
+    assert!(
+        col_html.contains("class=\"article-meta\">2024-01-01"),
+        "collection date missing"
+    );
+    assert!(
+        col_html.contains("class=\"summary\">一个文集"),
+        "collection summary missing"
     );
 
     // Chapter page: author link at top, prev/next at bottom
@@ -216,12 +313,26 @@ fn test_full_build() {
         !chapter_html.contains("class=\"back-link\""),
         "chapter page must not have back links"
     );
+    // Chapter-level metadata rendered
+    assert!(
+        chapter_html.contains("class=\"article-meta\">2024-01-10"),
+        "chapter date missing"
+    );
+    assert!(
+        chapter_html.contains("class=\"summary\">开篇章节"),
+        "chapter summary missing"
+    );
 
     // Non-matching single md → collection
     assert!(out_dir.join("a/alice/大纲/index.html").exists());
 
     // Assets copied
     assert!(out_dir.join("files/alice/杨朔的愿望/photo.png").exists());
+    // .soil.toml files are metadata, never copied as assets
+    assert!(
+        !out_dir.join("files/alice/随笔.soil.toml").exists(),
+        ".soil.toml must not be copied as an asset"
+    );
 
     // --check-links: no broken links
     let warnings: Vec<&str> = summary

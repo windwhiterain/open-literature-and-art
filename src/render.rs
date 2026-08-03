@@ -30,9 +30,13 @@ img{max-width:100%;height:auto;border-radius:4px}
 .article-list{list-style:none;padding:0}
 .article-list li{margin:.5em 0;padding:.5em 0;border-bottom:1px solid #f0f0f0}
 .article-list a{font-size:1.1rem}
+.list-date{font-size:13px;color:#999;margin-left:.5em}
+.list-summary{font-size:14px;color:#666;margin:.2em 0 0;font-style:italic}
 .empty-state{color:#999;font-style:italic;text-align:center;padding:2rem}
 .author-line{text-align:center;color:#888;font-size:15px;margin:0 0 1.5rem}
 .author-line a{color:#555}
+.article-meta{text-align:center;color:#999;font-size:14px;margin:.3rem 0 1rem}
+.summary{font-style:italic;color:#555;border-left:3px solid #eee;padding:.3em 1em;margin:0 0 1.5em;font-size:16px}
 .chapter-nav{display:flex;justify-content:space-between;margin-top:2.5rem;font-size:15px}
 .chapter-nav a{color:#555}
 .chapter-nav .placeholder{visibility:hidden}
@@ -91,16 +95,34 @@ pub fn render_site(site: &Site) -> Vec<(String, String)> {
     pages
 }
 
+/// A listable item (article or collection) with optional metadata.
+struct ListEntry {
+    title: String,
+    href: String,
+    date: Option<String>,
+    summary: Option<String>,
+}
+
 /// Collect top-level article pages: standalone articles + collections
 /// (each collection appears as a single entry pointing to its index page).
-fn collect_articles(site: &Site) -> Vec<(String, String)> {
+fn collect_articles(site: &Site) -> Vec<ListEntry> {
     let mut articles = Vec::new();
     for author in &site.authors {
         for a in &author.articles {
-            articles.push((a.title.clone(), a.out_path.clone()));
+            articles.push(ListEntry {
+                title: a.title.clone(),
+                href: a.out_path.clone(),
+                date: a.date.clone(),
+                summary: a.summary.clone(),
+            });
         }
         for c in &author.collections {
-            articles.push((c.name.clone(), format!("{}/index.html", c.out_dir)));
+            articles.push(ListEntry {
+                title: c.name.clone(),
+                href: format!("{}/index.html", c.out_dir),
+                date: c.date.clone(),
+                summary: c.summary.clone(),
+            });
         }
     }
     articles
@@ -133,6 +155,21 @@ fn js_string(s: &str) -> String {
     out
 }
 
+/// Escape a string for embedding in HTML text or attribute values.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 // ── page skeleton ──
 
 enum ActiveNav {
@@ -152,7 +189,15 @@ fn page(
     active: ActiveNav,
     breadcrumbs: &[Crumb],
     body_html: &str,
+    description: Option<&str>,
 ) -> String {
+    let desc_meta = description.map_or(String::new(), |d| {
+        format!(
+            "<meta name=\"description\" content=\"{}\">\n",
+            html_escape(d)
+        )
+    });
+
     let prefix = if depth == 0 {
         String::new()
     } else {
@@ -210,7 +255,7 @@ fn page(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} · 开源文艺</title>
+{desc_meta}<title>{title} · 开源文艺</title>
 <style>{CSS}</style>
 </head>
 <body>
@@ -220,16 +265,29 @@ fn page(
 {body_html}
 </main>
 </body>
-</html>"#
+</html>"#,
+        desc_meta = desc_meta,
     )
 }
 
 // ── articles page (homepage) & authors page ──
 
-fn render_articles_page(articles: &[(String, String)]) -> String {
+fn render_articles_page(articles: &[ListEntry]) -> String {
     let items = articles
         .iter()
-        .map(|(t, h)| format!("{{t:{},h:{}}}", js_string(t), js_string(h)))
+        .map(|e| {
+            format!(
+                "{{t:{},h:{},d:{},s:{}}}",
+                js_string(&e.title),
+                js_string(&e.href),
+                e.date
+                    .as_deref()
+                    .map_or_else(|| "null".to_string(), js_string),
+                e.summary
+                    .as_deref()
+                    .map_or_else(|| "null".to_string(), js_string),
+            )
+        })
         .collect::<Vec<_>>()
         .join(",");
 
@@ -263,6 +321,18 @@ fn render_articles_page(articles: &[(String, String)]) -> String {
       a.href = it.h;
       a.textContent = it.t;
       li.appendChild(a);
+      if (it.d) {{
+        const span = document.createElement('span');
+        span.className = 'list-date';
+        span.textContent = ' ' + it.d;
+        li.appendChild(span);
+      }}
+      if (it.s) {{
+        const p = document.createElement('p');
+        p.className = 'list-summary';
+        p.textContent = it.s;
+        li.appendChild(p);
+      }}
       list.appendChild(li);
     }});
   }}
@@ -274,7 +344,7 @@ fn render_articles_page(articles: &[(String, String)]) -> String {
         items = items,
     );
 
-    page("文章", 0, ActiveNav::Articles, &[], &body)
+    page("文章", 0, ActiveNav::Articles, &[], &body, None)
 }
 
 fn render_authors_page(authors: &[(String, String)]) -> String {
@@ -325,7 +395,7 @@ fn render_authors_page(authors: &[(String, String)]) -> String {
         items = items,
     );
 
-    page("作者", 0, ActiveNav::Authors, &[], &body)
+    page("作者", 0, ActiveNav::Authors, &[], &body, None)
 }
 
 // ── author page ──
@@ -338,7 +408,7 @@ fn render_author_page(author: &Author) -> String {
     }
 
     // Mixed list: standalone articles + collections, sorted by name (lexicographic)
-    let mut items: Vec<(String, String)> = Vec::new();
+    let mut items: Vec<ListEntry> = Vec::new();
     for a in &author.articles {
         let href = if a.out_path.ends_with("index.html") {
             // Dir-based article: link directly to index.html (works under file:// too)
@@ -352,20 +422,47 @@ fn render_author_page(author: &Author) -> String {
                 a.out_path.split('/').next_back().unwrap_or(&a.out_path)
             )
         };
-        items.push((a.title.clone(), href));
+        items.push(ListEntry {
+            title: a.title.clone(),
+            href,
+            date: a.date.clone(),
+            summary: a.summary.clone(),
+        });
     }
     for c in &author.collections {
         let dir_name = c.out_dir.split('/').next_back().unwrap_or(&c.name);
-        items.push((c.name.clone(), format!("./{dir_name}/index.html")));
+        items.push(ListEntry {
+            title: c.name.clone(),
+            href: format!("./{dir_name}/index.html"),
+            date: c.date.clone(),
+            summary: c.summary.clone(),
+        });
     }
-    items.sort_by(|a, b| a.0.cmp(&b.0));
+    items.sort_by(|a, b| a.title.cmp(&b.title));
 
     if items.is_empty() {
         body.push_str(r#"<p class="empty-state">暂无内容</p>"#);
     } else {
         body.push_str(r#"<ul class="article-list">"#);
-        for (title, href) in items {
-            body.push_str(&format!("<li><a href=\"{href}\">{title}</a></li>"));
+        for item in items {
+            body.push_str(&format!(
+                "<li><a href=\"{href}\">{title}</a>",
+                href = item.href,
+                title = item.title,
+            ));
+            if let Some(date) = &item.date {
+                body.push_str(&format!(
+                    " <span class=\"list-date\">{}</span>",
+                    html_escape(date)
+                ));
+            }
+            if let Some(summary) = &item.summary {
+                body.push_str(&format!(
+                    "<p class=\"list-summary\">{}</p>",
+                    html_escape(summary)
+                ));
+            }
+            body.push_str("</li>");
         }
         body.push_str("</ul>");
     }
@@ -385,6 +482,7 @@ fn render_author_page(author: &Author) -> String {
             },
         ],
         &body,
+        None,
     )
 }
 
@@ -394,12 +492,24 @@ fn render_article_page(article: &Article, author: &Author) -> String {
     let depth = paths::depth(&article.out_path);
     let author_href = paths::relative_href(depth, &format!("a/{}/index.html", author.name));
 
-    let body = format!(
-        "<h1>{title}</h1>\n<p class=\"author-line\">作者: <a href=\"{author_href}\">{author}</a></p>\n{html}",
+    let mut body = format!(
+        "<h1>{title}</h1>\n<p class=\"author-line\">作者: <a href=\"{author_href}\">{author}</a></p>",
         title = article.title,
-        html = article.html,
         author = author.name,
     );
+    if let Some(date) = &article.date {
+        body.push_str(&format!(
+            "\n<p class=\"article-meta\">{}</p>",
+            html_escape(date)
+        ));
+    }
+    if let Some(summary) = &article.summary {
+        body.push_str(&format!(
+            "\n<p class=\"summary\">{}</p>",
+            html_escape(summary)
+        ));
+    }
+    body.push_str(&format!("\n{}", article.html));
 
     page(
         &article.title,
@@ -420,6 +530,7 @@ fn render_article_page(article: &Article, author: &Author) -> String {
             },
         ],
         &body,
+        article.summary.as_deref(),
     )
 }
 
@@ -434,6 +545,19 @@ fn render_collection_page(collection: &Collection, author: &Author) -> String {
         collection.name,
         author = author.name,
     );
+
+    if let Some(date) = &collection.date {
+        body.push_str(&format!(
+            "\n<p class=\"article-meta\">{}</p>",
+            html_escape(date)
+        ));
+    }
+    if let Some(summary) = &collection.summary {
+        body.push_str(&format!(
+            "\n<p class=\"summary\">{}</p>",
+            html_escape(summary)
+        ));
+    }
 
     body.push_str("<h2>章节</h2>");
     if collection.chapters.is_empty() {
@@ -493,6 +617,7 @@ fn render_collection_page(collection: &Collection, author: &Author) -> String {
             },
         ],
         &body,
+        collection.summary.as_deref(),
     )
 }
 
@@ -517,12 +642,24 @@ fn render_chapter_page(
     );
     let author_href = paths::relative_href(depth, &format!("a/{}/index.html", author.name));
 
-    let body = format!(
-        "<h1>{title}</h1>\n<p class=\"author-line\">作者: <a href=\"{author_href}\">{author}</a></p>\n{html}",
+    let mut body = format!(
+        "<h1>{title}</h1>\n<p class=\"author-line\">作者: <a href=\"{author_href}\">{author}</a></p>",
         title = chapter.title,
-        html = chapter.html,
         author = author.name,
     );
+    if let Some(date) = &chapter.date {
+        body.push_str(&format!(
+            "\n<p class=\"article-meta\">{}</p>",
+            html_escape(date)
+        ));
+    }
+    if let Some(summary) = &chapter.summary {
+        body.push_str(&format!(
+            "\n<p class=\"summary\">{}</p>",
+            html_escape(summary)
+        ));
+    }
+    body.push_str(&format!("\n{}", chapter.html));
 
     // Bottom: only prev/next chapter links (within the collection)
     let prev_html = prev.map_or(r#"<span class="placeholder"></span>"#.to_string(), |p| {
@@ -558,5 +695,6 @@ fn render_chapter_page(
             },
         ],
         &body,
+        chapter.summary.as_deref(),
     )
 }

@@ -1,7 +1,7 @@
 use crate::git;
 use crate::github::{Auth, GitHubRepo, GitHubUser, PullRequest};
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 // ── Prompt helpers ──
 //
@@ -329,15 +329,7 @@ fn repo_from_url(url: &str) -> Result<GitHubRepo, String> {
 fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<GitHubRepo, String> {
     section("文稿目录与仓库");
 
-    println!("你的文稿文件夹将直接作为仓库的工作副本。");
-    let input = ask_with_default("请输入你的文稿文件夹路径（直接回车使用当前目录）", ".");
-    let dir = std::env::current_dir()
-        .map(|cwd| cwd.join(&input))
-        .unwrap_or_else(|_| PathBuf::from(&input));
-
-    if !dir.is_dir() {
-        return Err(format!("文件夹不存在: {}", dir.display()));
-    }
+    let dir = std::env::current_dir().map_err(|e| format!("无法获取当前目录: {e}"))?;
     let canonical = dir.canonicalize().unwrap_or_else(|_| dir.clone());
     println!("使用文稿目录: {}", canonical.display());
 

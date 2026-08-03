@@ -31,6 +31,12 @@ pub struct Article {
     pub out_dir: String,
     /// Rendered HTML body (without the title H1 — page header already shows it)
     pub html: String,
+    /// Publication date (YYYY-MM-DD) from .soil.toml
+    pub date: Option<String>,
+    /// Whether the article is a draft (skipped during build)
+    pub draft: bool,
+    /// Short description from .soil.toml
+    pub summary: Option<String>,
 }
 
 /// A collection (文集) — a directory containing multiple chapters
@@ -43,6 +49,12 @@ pub struct Collection {
     pub chapters: Vec<Chapter>,
     /// Non-image attachments (e.g. .json files)
     pub attachments: Vec<Asset>,
+    /// Publication date (YYYY-MM-DD) from .soil.toml
+    pub date: Option<String>,
+    /// Whether the collection is a draft (skipped during build)
+    pub draft: bool,
+    /// Short description from .soil.toml
+    pub summary: Option<String>,
 }
 
 /// A chapter within a collection
@@ -54,6 +66,12 @@ pub struct Chapter {
     /// Output path, e.g. "a/whiting/红河水/第一章.html"
     pub out_path: String,
     pub html: String,
+    /// Publication date (YYYY-MM-DD) from .soil.toml
+    pub date: Option<String>,
+    /// Whether the chapter is a draft (skipped during build)
+    pub draft: bool,
+    /// Short description from .soil.toml
+    pub summary: Option<String>,
 }
 
 /// A non-markdown asset (image, JSON, etc.)

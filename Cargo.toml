@@ -11,6 +11,7 @@ members = [".", "soil"]
 pulldown-cmark = "0.13"
 walkdir = "2"
 rand = "0.9"
+toml = "0.8"
 
 [profile.release]
 strip = true
