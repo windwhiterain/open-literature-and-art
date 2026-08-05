@@ -18,6 +18,8 @@ cargo fmt --check                      # CI 门槛
 cargo clippy -- -D warnings            # CI 门槛（两个 crate 一起查）
 ```
 
+**裸 `cargo build` 只构建 sitegen**：根 Cargo.toml 同时是 package 和 workspace（`members = [".", "soil"]`），不带 `-p`/`--workspace` 的构建默认只构建根包，soil 会被静默跳过。构建 soil 必须 `cargo build -p soil`（release.yml 曾因 `cargo build --release` 产物缺失而失败）。
+
 CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --check-links` → `build -p soil`。所有验证需通过才能声称完成。
 
 ## 上游仓库（soil 相关，容易猜错）
@@ -68,6 +70,8 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 - URL 用原始 UTF-8 文件名，不做 slug 化
 - 首页/作者页的随机 10 项 + 「换一批」是**客户端 JS**（页面内嵌 `items` 数组，`js_string()` 转义），构建时不做随机，无 `--seed`
 
+**输出目录结构**（验证线上链接时按此拼 URL）：作者页 `a/<name>/index.html`；作者目录顶层 `.md` → `a/<name>/<标题>.html`；子目录文章/文集 → `a/<name>/<标题>/index.html`；文集章节 → `a/<name>/<文集>/<章节>.html`；资源 → `files/<author>/...`（scan.rs 的 `out_path` 决定）
+
 ## 排序
 
 列表（作者页混合列表、文集章节列表）按名字**字典序**（`String::cmp`，Unicode 码点），不是自然序。章节页「上一章/下一章」也基于此顺序——注意 "第十章" 会排在 "第二章" 前。
@@ -100,3 +104,12 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 - checkout 必须 `submodules: recursive`（当前仅 `authors/whiting` 是子模块；`authors/test_user` 只是本地未跟踪的空目录残留，CI checkout 不存在）
 - 上传 `dist/` → GitHub Pages；仓库 Settings → Pages → Source 需手动设为 "GitHub Actions"（YAML 无法配置）
 - `dist/` 和 `target/` 已 gitignore
+
+**workflow 联动（GITHUB_TOKEN 机制）**：workflow 内部用 `GITHUB_TOKEN` 发起的 push **不会触发任何其他 workflow**（GitHub 防递归设计，仅 `workflow_dispatch`/`repository_dispatch` 例外；人工 push 正常触发）。因此：
+- `auto-update-submodules.yml`（每日 03:57 UTC，拉 submodule 最新提交并 push）更新后必须显式 `gh workflow run deploy.yml --ref v1` 触发部署（已实现，依赖 `actions: write` 权限）——不要改成"push 后等 deploy 自动触发"或删掉该步骤
+- submodule 指针变更本身匹配 deploy.yml 的 `authors/**` paths 过滤，但事件层面已被拦掉，paths 过滤救不回来
+
+`release.yml`（Build Release Binaries）要点：
+- 构建命令是 `cargo build --release -p soil`（裸 build 只出 sitegen，见上）
+- runner 矩阵：`macos-13` 已退役（GitHub 已移除该镜像，job 会空等直到超时），Intel x64 用 `macos-15-intel`；`macos-latest` 现为 arm64
+- job 有 `timeout-minutes: 30`，runner 不可用时 30 分钟内失败而非空等 24h
