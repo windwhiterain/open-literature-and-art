@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: auto-update-submodules
@@ -44,3 +45,9 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git commit -am "自动更新子模块 ($(date +%Y-%m-%d))"
           git push
+
+      - name: Trigger site deploy
+        # GITHUB_TOKEN pushes never trigger other workflows (by design),
+        # so deploy must be dispatched explicitly.
+        if: steps.diff.outputs.changed == 'true'
+        run: gh workflow run deploy.yml --ref v1
