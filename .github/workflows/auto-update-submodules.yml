@@ -50,4 +50,6 @@ jobs:
         # GITHUB_TOKEN pushes never trigger other workflows (by design),
         # so deploy must be dispatched explicitly.
         if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy.yml --ref v1
