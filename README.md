@@ -39,8 +39,6 @@
 irm https://github.com/windwhiterain/open-literature-and-art/releases/latest/download/install.ps1 | iex
 ```
 
-完成后**重新打开终端**，运行 `soil submit` 即可。
-
 卸载：
 
 ```powershell
@@ -55,8 +53,6 @@ Remove-Item "$env:LOCALAPPDATA\soil" -Recurse -Force
 curl -fsSL https://github.com/windwhiterain/open-literature-and-art/releases/latest/download/install.sh | sh
 ```
 
-重新打开终端后运行 `soil submit`。
-
 卸载：
 
 ```sh
@@ -64,6 +60,8 @@ rm ~/.local/bin/soil
 ```
 
 ## 使用方法
+
+在你的文稿库下打开终端：
 
 ```sh
 soil submit
@@ -79,9 +77,8 @@ soil submit
 
 ```sh
 soil               # 显示帮助
-soil preview       # 在当前目录构建网站并打开浏览器预览（不做任何 git 操作）
-soil preview 目录  # 预览指定目录（该目录需包含 authors/）
-soil meta          # 为当前目录的文稿生成 .soil.toml 元数据模板
+soil preview       # 将你的文稿库在本地构建成网站并打开浏览器预览（不做任何 git 操作）
+soil meta          # 为当前目录的文稿生成 .soil.toml 元数据模板，包括创作时间，作品简介
 soil -V, --version # 显示版本号
 ```
 
