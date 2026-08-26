@@ -13,18 +13,35 @@ pub fn is_git_installed() -> bool {
         .is_ok_and(|s| s.success())
 }
 
+/// Which GitHub SSH channel a probe found usable.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SshChannel {
+    /// Plain SSH on port 22 (`git@github.com`) — GitHub's default.
+    Port22,
+    /// GitHub's alternate endpoint `ssh.github.com:443`, the official
+    /// fallback for networks that block SSH on port 22.
+    Port443,
+}
+
 /// Whether SSH to GitHub is usable for this user: an SSH key exists, and the
 /// key authenticates against GitHub (network reachable, key registered).
 /// Probed once per run; result is cached.
 pub fn ssh_available() -> bool {
-    static AVAILABLE: OnceLock<bool> = OnceLock::new();
-    *AVAILABLE.get_or_init(probe_ssh)
+    ssh_channel().is_some()
 }
 
-fn probe_ssh() -> bool {
+/// The SSH channel that works for this user, if any.
+/// Tries port 22 first, then GitHub's alternate endpoint on port 443 —
+/// port 22 is the one most often blocked on restricted networks.
+fn ssh_channel() -> Option<SshChannel> {
+    static CHANNEL: OnceLock<Option<SshChannel>> = OnceLock::new();
+    *CHANNEL.get_or_init(probe_ssh)
+}
+
+fn probe_ssh() -> Option<SshChannel> {
     // 1. An SSH key must exist
     let Some(home) = dirs::home_dir() else {
-        return false;
+        return None;
     };
     let ssh_dir = home.join(".ssh");
     let has_key = [
@@ -37,34 +54,45 @@ fn probe_ssh() -> bool {
     .iter()
     .any(|k| ssh_dir.join(k).exists());
     if !has_key {
-        return false;
+        return None;
     }
 
     // 2. Auth probe: fast, non-interactive, bounded timeout.
     // GitHub replies "successfully authenticated" on stderr (exit code 1).
-    let output = Command::new("ssh")
-        .args([
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            "-o",
-            "ConnectTimeout=10",
-            "-T",
-            "git@github.com",
-        ])
-        .stdout(std::process::Stdio::null())
-        .output();
-
-    match output {
-        Ok(o) => String::from_utf8_lossy(&o.stderr).contains("successfully authenticated"),
-        Err(_) => false,
+    fn auth_ok(args: &[&str]) -> bool {
+        let output = Command::new("ssh")
+            .arg("-o")
+            .arg("BatchMode=yes")
+            .arg("-o")
+            .arg("StrictHostKeyChecking=accept-new")
+            .arg("-o")
+            .arg("ConnectTimeout=10")
+            .arg("-T")
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .output();
+        match output {
+            Ok(o) => String::from_utf8_lossy(&o.stderr).contains("successfully authenticated"),
+            Err(_) => false,
+        }
     }
+
+    if auth_ok(&["git@github.com"]) {
+        return Some(SshChannel::Port22);
+    }
+    if auth_ok(&["-p", "443", "git@ssh.github.com"]) {
+        return Some(SshChannel::Port443);
+    }
+    None
 }
 
 /// Make every `https://github.com/...` fetch/push in this repo go over SSH
 /// instead (local config only, never committed). Used when SSH is available
 /// and HTTPS is flaky; without it the repo just uses HTTPS as-is.
+///
+/// When only the port-443 channel works, additionally configure
+/// `core.sshCommand` so the ssh invoked by git actually reaches
+/// `ssh.github.com:443` (which the plain `git@github.com` URL would miss).
 pub fn configure_ssh_insteadof(repo_dir: &Path) -> Result<(), String> {
     run_git(
         &[
@@ -74,6 +102,16 @@ pub fn configure_ssh_insteadof(repo_dir: &Path) -> Result<(), String> {
         ],
         Some(repo_dir),
     )?;
+    if ssh_channel() == Some(SshChannel::Port443) {
+        run_git(
+            &[
+                "config",
+                "core.sshCommand",
+                "ssh -o HostName=ssh.github.com -o Port=443",
+            ],
+            Some(repo_dir),
+        )?;
+    }
     Ok(())
 }
 
@@ -149,10 +187,27 @@ fn run_git_network(args: &[&str], cwd: Option<&Path>) -> Result<String, String> 
 }
 
 /// Clone a repository at a specific branch (e.g. `v1`).
+/// Shallow and single-branch: the work copy only ever needs the tip of the
+/// one branch it operates on, and cloning only that commit instead of the
+/// full history makes the initial clone much smaller — important on flaky
+/// networks where a full-history clone is the slowest, most failure-prone
+/// step. Later fetch/pull deepen the clone automatically as needed.
 pub fn clone_branch(url: &str, branch: &str, dest: &Path) -> Result<(), String> {
     let parent = dest.parent().unwrap_or(Path::new("."));
     let _ = std::fs::create_dir_all(parent);
-    run_git_network(&["clone", "-b", branch, url, &dest.to_string_lossy()], None)?;
+    run_git_network(
+        &[
+            "clone",
+            "-b",
+            branch,
+            "--depth",
+            "1",
+            "--single-branch",
+            url,
+            &dest.to_string_lossy(),
+        ],
+        None,
+    )?;
     Ok(())
 }
 
