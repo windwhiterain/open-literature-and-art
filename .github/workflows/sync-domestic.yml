@@ -34,6 +34,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: v1
+          # 判断镜像提交是否为祖先依赖完整历史：浅克隆（默认 depth 1）
+          # 会把祖先提交当"不相关历史"，merge 直接失败。
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 拉取国内镜像
