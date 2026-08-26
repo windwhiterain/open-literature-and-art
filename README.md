@@ -11,7 +11,7 @@
 
 网站地址：<https://windwhiterain.github.io/open-literature-and-art/>
 
-**国内镜像**（GitCode Pages，国内访问更快）：<https://whiting.gitcode.io/open-literature-and-art-pages/>
+**国内镜像**（腾讯云 COS 静态网站托管，国内访问更快）：`https://<你的备案域名>/`<!-- 域名在腾讯云绑定后替换 -->
 
 ## 相关页面
 
