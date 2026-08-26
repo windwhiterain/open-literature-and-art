@@ -11,7 +11,7 @@
 
 网站地址：<https://windwhiterain.github.io/open-literature-and-art/>
 
-**国内镜像**（腾讯云 COS 静态网站托管，国内访问更快）：`https://<你的备案域名>/`<!-- 域名在腾讯云绑定后替换 -->
+**国内镜像**（腾讯云 COS 静态网站托管，国内访问更快）：<https://open-literature-and-art.top/>（域名需绑定到 COS 静态网站源站，见 `AGENTS.md`）
 
 ## 相关页面
 
