@@ -4,10 +4,11 @@ on:
   push:
     branches: [v1]
     # Only rebuild/deploy when something that affects the site changed:
-    # author content (incl. submodule gitlinks), the sitegen code, or this
-    # workflow itself. README/docs/soil changes skip the deploy entirely.
+    # author content (incl. submodule gitlinks), static pages, the sitegen
+    # code, or this workflow itself. README/docs/soil changes skip the deploy.
     paths:
       - "authors/**"
+      - "pages/**"
       - ".gitmodules"
       - "src/**"
       - "Cargo.toml"

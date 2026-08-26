@@ -198,6 +198,27 @@ fn test_full_build() {
         "about page nav active state missing"
     );
 
+    // Submit page: nav link on homepage + the page exists with key content
+    assert!(
+        index_html.contains("submit.html"),
+        "submit nav link missing from homepage"
+    );
+    let submit_path = out_dir.join("submit.html");
+    assert!(submit_path.exists(), "submit.html missing");
+    let submit_html = fs::read_to_string(&submit_path).unwrap();
+    assert!(
+        submit_html.contains("投稿指南"),
+        "submit page content missing"
+    );
+    assert!(
+        submit_html.contains("soil submit"),
+        "submit page command missing"
+    );
+    assert!(
+        submit_html.contains("class=\"active\""),
+        "submit page nav active state missing"
+    );
+
     // Author page
     let author_index = out_dir.join("a/alice/index.html");
     assert!(author_index.exists(), "author page missing");

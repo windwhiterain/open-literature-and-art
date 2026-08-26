@@ -12,6 +12,9 @@ pub mod scan;
 /// has a default about page even when `pages/about.md` is absent.
 const ABOUT_MD: &str = include_str!("../pages/about.md");
 
+/// The submission guide content, baked in the same way as the about page.
+const SUBMIT_MD: &str = include_str!("../pages/submit.md");
+
 pub struct Config {
     pub authors_dir: PathBuf,
     pub out_dir: PathBuf,
@@ -32,11 +35,16 @@ pub fn run(config: &Config) -> BuildSummary {
     // 2. Render all HTML pages (random picks happen client-side via JS)
     let mut pages = render::render_site(&site);
 
-    // 2b. About page embedded in the binary (same approach as the CSS shell)
+    // 2b. Static pages embedded in the binary (same approach as the CSS shell)
     let about_html = content::render_markdown(ABOUT_MD);
     pages.push((
         "about.html".to_string(),
         render::render_about_page(&about_html),
+    ));
+    let submit_html = content::render_markdown(SUBMIT_MD);
+    pages.push((
+        "submit.html".to_string(),
+        render::render_submit_page(&submit_html),
     ));
 
     // 4. Write pages to out_dir

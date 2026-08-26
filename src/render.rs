@@ -196,6 +196,7 @@ fn html_escape(s: &str) -> String {
 enum ActiveNav {
     Articles,
     Authors,
+    Submit,
     About,
     None,
 }
@@ -240,6 +241,11 @@ fn page(
     } else {
         format!("{prefix}/about.html")
     };
+    let submit_href = if depth == 0 {
+        "submit.html".to_string()
+    } else {
+        format!("{prefix}/submit.html")
+    };
 
     let topbar = format!(
         r#"<header class="topbar">
@@ -247,6 +253,7 @@ fn page(
 <nav class="topnav">
 <a href="{home_href}"{articles_active}>文章</a>
 <a href="{authors_href}"{authors_active}>作者</a>
+<a href="{submit_href}"{submit_active}>投稿</a>
 <a href="{about_href}"{about_active}>关于</a>
 </nav>
 </header>"#,
@@ -256,6 +263,10 @@ fn page(
         },
         authors_active = match active {
             ActiveNav::Authors => " class=\"active\"",
+            _ => "",
+        },
+        submit_active = match active {
+            ActiveNav::Submit => " class=\"active\"",
             _ => "",
         },
         about_active = match active {
@@ -478,6 +489,30 @@ pub fn render_about_page(body_html: &str) -> String {
         ],
         body_html,
         Some("开源文艺——一个去中心化、永久存续的文学创作分享平台。了解站点的运作方式与设计理念。"),
+    )
+}
+
+// ── submit page ──
+
+/// Build the submit guide page shell around rendered markdown content.
+/// The body_html is the full rendered HTML (including H1) from pages/submit.md.
+pub fn render_submit_page(body_html: &str) -> String {
+    page(
+        "投稿",
+        0,
+        ActiveNav::Submit,
+        &[
+            Crumb {
+                label: "首页".into(),
+                href: Some("index.html".into()),
+            },
+            Crumb {
+                label: "投稿".into(),
+                href: None,
+            },
+        ],
+        body_html,
+        Some("开源文艺投稿指南——用 soil 工具把文稿发布到本站：安装、命令详解与本地文稿库构建。"),
     )
 }
 

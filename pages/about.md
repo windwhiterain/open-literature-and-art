@@ -9,7 +9,7 @@
 这意味着：
 
 - **内容永远归作者所有**：作者的文稿始终存放在自己的仓库里，随时可以编辑、删除、设为私有、甚至迁移到其他平台。本仓库只保留了一条历史的引用，没有副本，也没有"上交"。
-- **投稿只需一个链接**：作者通过配套的 `soil` 工具（或直接在 `.gitmodules` 中新增一条 submodule 记录）投稿。非程序员也能独立完成，无需学习 Git。
+- **投稿只是一个链接**：本站不收录文稿本身，只记录那条 submodule 引用。用 `soil` 工具一键完成投稿，非程序员也能独立完成——具体步骤见[投稿指南](submit.html)。
 - **站点构建时拉取内容**：每次站点重新构建时，构建工具 `sitegen` 会根据 submodule 记录从每位作者的仓库中 checkout 各自的文稿，全部转为纯 HTML 静态页面。
 - **安全感来自独立性**：即使这个站点仓库明天消失，你的文稿在自己的仓库里完好无损；反过来，如果你决定不再参与，只需移除那条 submodule 记录——站点上就没有你的内容，但你自己的仓库不受任何影响。
 
@@ -30,6 +30,6 @@
 
 ## 相关链接
 
+- 投稿指南：[投稿](submit.html)
 - 本站源代码：[github.com/windwhiterain/open-literature-and-art](https://github.com/windwhiterain/open-literature-and-art)
-- 投稿工具 soil：[下载页](https://github.com/windwhiterain/open-literature-and-art/releases)
 - 示例作者仓库（whiting）：[github.com/windwhiterain/literature-and-art](https://github.com/windwhiterain/literature-and-art)
