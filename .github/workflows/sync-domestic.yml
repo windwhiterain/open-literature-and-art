@@ -103,7 +103,6 @@ jobs:
           # 会被当成非快进拒绝（"fetch first"）。
           fetch-depth: 0
           submodules: recursive
-          submodule-depth: 0 # 子模块镜像 push 同理需要完整历史
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 推送到 Gitee 主仓库
@@ -129,6 +128,9 @@ jobs:
             echo "⚠ 缺少 GITEE_TOKEN/GITCODE_TOKEN secret，跳过子模块镜像同步"
             exit 0
           fi
+          # checkout 拉的子模块是浅克隆（depth 1），先补全历史再 push，
+          # 否则无法验证远端 tip 是祖先，被拒为 fetch first。
+          git -C authors/whiting fetch --unshallow || true
           git -C authors/whiting push "https://oauth2:${GITEE_TOKEN}@gitee.com/xiaosijicloud/literature-and-art.git" HEAD:master \
             || echo "⚠ 子模块镜像推送失败（Gitee）"
           git -C authors/whiting push "https://oauth2:${GITCODE_TOKEN}@gitcode.com/whiting/literature-and-art.git" HEAD:master \
