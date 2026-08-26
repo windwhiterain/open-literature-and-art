@@ -40,15 +40,20 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 拉取国内镜像
-        # 镜像在海外 runner 上偶发不可达（Gitee 尤甚），每家重试 3 次；
-        # 仍失败不阻塞另一家，本轮跳过、下轮自愈。
+        # 匿名 fetch 对 Gitee 从海外 runner 返回 401（要求认证），必须带 token；
+        # GitCode 匿名可用，带上 token 也无害。每家重试 3 次，仍失败不阻塞另一家。
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
         run: |
-          git remote add gitee https://gitee.com/xiaosijicloud/open-literature-and-art.git
-          git remote add gitcode https://gitcode.com/whiting/open-literature-and-art.git
-          for remote in gitee gitcode; do
+          for spec in \
+            "gitee:https://oauth2:${GITEE_TOKEN}@gitee.com/xiaosijicloud/open-literature-and-art.git" \
+            "gitcode:https://oauth2:${GITCODE_TOKEN}@gitcode.com/whiting/open-literature-and-art.git" \
+          ; do
+            remote="${spec%%:*}"; url="${spec#*:}"
             ok=0
             for attempt in 1 2 3; do
-              if git fetch "$remote"; then ok=1; break; fi
+              if git fetch "$url" "+refs/heads/v1:refs/remotes/$remote/v1"; then ok=1; break; fi
               echo "⚠ ${remote} 第 ${attempt} 次拉取失败，重试..."
               sleep 10
             done

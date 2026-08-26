@@ -117,7 +117,7 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 - submodule 指针变更本身匹配 deploy.yml 的 `authors/**` paths 过滤，但事件层面已被拦掉，paths 过滤救不回来
 
 `sync-domestic.yml`（国内外镜像双向同步，每日 04:27 UTC + `workflow_dispatch`）：
-- **pull-back job**：fetch Gitee/GitCode 镜像 v1 → 把镜像领先的提交 **merge** 回 GitHub v1（`merge-base --is-ancestor` 判断是否有新提交；发生冲突就 job 失败、人工处理，**绝不覆盖/force push**）→ push 回 GitHub → 有变更时显式 `gh workflow run deploy.yml --ref v1`。单家镜像 fetch 失败不阻塞另一家（`|| echo`，下轮自愈）。**checkout 必须 `fetch-depth: 0`**——祖先判断需要完整历史，浅克隆会把祖先提交误判为"不相关历史"导致 merge 失败（已踩过的坑）
+- **pull-back job**：fetch Gitee/GitCode 镜像 v1 → 把镜像领先的提交 **merge** 回 GitHub v1（`merge-base --is-ancestor` 判断是否有新提交；发生冲突就 job 失败、人工处理，**绝不覆盖/force push**）→ push 回 GitHub → 有变更时显式 `gh workflow run deploy.yml --ref v1`。**checkout 必须 `fetch-depth: 0`**——祖先判断需要完整历史，浅克隆会把祖先提交误判为"不相关历史"导致 merge 失败（已踩过的坑）。**拉取必须带 token**（`https://oauth2:${TOKEN}@...`）——Gitee 对海外 runner 的匿名 fetch 返回 401 要求认证；每家重试 3 次，仍失败不阻塞另一家（`||` 跳过，下轮自愈）
 - **mirror-out job**（`needs: pull-back`）：push GitHub v1 → Gitee/GitCode 主仓库（`https://oauth2:${TOKEN}@...`，token 来自 repo secrets `GITEE_TOKEN`/`GITCODE_TOKEN`——**勿删 secrets，勿把 token 明文写进 workflow**）；子模块镜像（`literature-and-art` 的 HEAD:master）尽力而为，失败不红。**checkout 同样 `fetch-depth: 0` + `submodule-depth: 0`**——浅克隆下 push 无法验证远端 tip 是本地祖先，被当非快进拒绝（"fetch first"）
 - **顺序固定**：先 pull-back 再 mirror-out（pull-back 失败 → mirror-out 跳过，避免用旧 GitHub 状态覆盖国内新提交；即使执行也是非快进被拒）
 - 国内镜像 owner 与 GitHub 不同名（见"上游仓库"节），改镜像 URL 时三处一起改（本 workflow、`platform.rs::upstream()`、AGENTS.md）
