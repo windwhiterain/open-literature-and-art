@@ -40,13 +40,20 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 拉取国内镜像
-        # 镜像在海外 runner 上偶发不可达，单家失败不阻塞另一家，
-        # 本轮跳过、下轮自动补齐。
+        # 镜像在海外 runner 上偶发不可达（Gitee 尤甚），每家重试 3 次；
+        # 仍失败不阻塞另一家，本轮跳过、下轮自愈。
         run: |
           git remote add gitee https://gitee.com/xiaosijicloud/open-literature-and-art.git
           git remote add gitcode https://gitcode.com/whiting/open-literature-and-art.git
-          git fetch gitee  || echo "⚠ 拉取 Gitee 镜像失败，本轮跳过"
-          git fetch gitcode || echo "⚠ 拉取 GitCode 镜像失败，本轮跳过"
+          for remote in gitee gitcode; do
+            ok=0
+            for attempt in 1 2 3; do
+              if git fetch "$remote"; then ok=1; break; fi
+              echo "⚠ ${remote} 第 ${attempt} 次拉取失败，重试..."
+              sleep 10
+            done
+            [ "$ok" = 1 ] || echo "⚠ ${remote} 镜像拉取失败，本轮跳过"
+          done
 
       - name: 合并国内镜像的新提交
         id: pullback
