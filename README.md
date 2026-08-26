@@ -11,6 +11,8 @@
 
 网站地址：<https://windwhiterain.github.io/open-literature-and-art/>
 
+**国内镜像**（腾讯云 EdgeOne Pages，免费版、国内 CDN 加速）：<https://open-literature-and-art.top/>（**当前未启用**：需完成 EdgeOne 配置并设置 `EDGEONE_API_TOKEN` 后自动开启，见 `AGENTS.md`）
+
 ## 相关页面
 
 - **[投稿指南](https://windwhiterain.github.io/open-literature-and-art/submit.html)**——如何用 `soil` 工具投稿：安装命令、命令详解、本地文稿库如何构建。对非程序员友好，无需学习 Git

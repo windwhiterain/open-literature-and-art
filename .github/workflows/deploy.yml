@@ -52,6 +52,28 @@ jobs:
       - name: Check soil compiles
         run: cargo build -p soil --release
 
+      # 国内镜像：把构建产物部署到腾讯云 EdgeOne Pages（免费版每月 50GB 流量+300 万次请求）。
+      # 当前处于「暂时关闭」：run 脚本里未配置 EDGEONE_API_TOKEN 时直接跳过，不会真正部署。
+      # 启用前的 EdgeOne 一次性配置（需你在控制台完成）：注册 → 拿 API Token → 绑定自定义域名
+      # open-literature-and-art.top（大陆/全球可用区需 工信部备案）→ 配 DNS CNAME。
+      # 注意：EdgeOne 默认项目域名在中国大陆仅 3 小时预览链接、不稳定，稳定大陆访问必须用自定义域名。
+      # token 放 repo secret EDGEONE_API_TOKEN（勿明文写入 workflow）。
+      - name: Setup Node.js (for EdgeOne CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Deploy to EdgeOne Pages (国内镜像)
+        continue-on-error: true
+        run: |
+          if [ -z "$EDGEONE_API_TOKEN" ]; then
+            echo "⚠ 国内镜像暂关闭：未配置 EDGEONE_API_TOKEN，跳过"
+            exit 0
+          fi
+          npx -y edgeone pages deploy ./dist -n open-literature-and-art -t "$EDGEONE_API_TOKEN"
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
