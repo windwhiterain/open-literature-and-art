@@ -1,5 +1,6 @@
 use crate::git;
-use crate::github::{Auth, GitHubRepo, GitHubUser, PullRequest};
+use crate::github::{Auth, PullRequest, Repo, User};
+use crate::platform::{self, Platform};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -90,16 +91,19 @@ pub struct WizardResult {
     pub pr_url: Option<String>,
 }
 
-pub fn run(
-    cache_dir: &Path,
-    upstream_owner: &str,
-    upstream_repo: &str,
-) -> Result<WizardResult, String> {
+pub fn run(cache_dir: &Path) -> Result<WizardResult, String> {
     // Step 1: Welcome
     step_welcome()?;
 
-    // Step 2: GitHub login (reuse saved token when still valid)
-    let auth = step_login_or_load(cache_dir)?;
+    // Step 1.5: Choose which hosting platform to submit through
+    // (remembered in {cache_dir}/config.toml after the first choice).
+    let platform = step_choose_platform(cache_dir)?;
+    // The upstream is the canonical repo on GitHub or the mirror on domestic
+    // platforms — resolved here so callers don't need per-platform constants.
+    let (upstream_owner, upstream_repo) = platform.upstream();
+
+    // Step 2: Login (reuse saved token when still valid)
+    let auth = step_login_or_load(cache_dir, platform)?;
 
     // Step 3: Get user info
     section("获取用户信息");
@@ -118,7 +122,7 @@ pub fn run(
     // Step 5: Prepare the local work copy on the v1 branch
     // Maintainers (push permission on upstream) clone the upstream directly
     // and skip fork & PR; everyone else forks first.
-    let is_maintainer = auth.has_push_permission(upstream_owner, upstream_repo)?;
+    let is_maintainer = auth.has_push_permission(upstream_owner, upstream_repo, &user.login)?;
     if is_maintainer {
         println!();
         println!("检测到你拥有「开源文艺」仓库的直接写权限，将直接提交到上游（无需 fork / PR）。");
@@ -158,7 +162,7 @@ pub fn run(
             &author_name,
             is_update,
         )?;
-        Some(pr.html_url)
+        Some(pr.html_url())
     };
 
     // Success
@@ -171,7 +175,10 @@ pub fn run(
         println!("║  出现在「开源文艺」网站上。         ║");
         println!("╚══════════════════════════════════════╝");
     } else if !is_maintainer && is_update && AUTO_UPDATE_ENABLED && made_change {
-        println!("你的文稿已提交到你的 GitHub 仓库（即刻生效）。");
+        println!(
+            "你的文稿已提交到你的 {} 仓库（即刻生效）。",
+            platform.name()
+        );
         println!();
         println!("*** 注意：你的仓库立刻更新了，但网站不会立刻显示。");
         println!("*** 网站每天自动同步一次所有作者的内容，你的更新会在 24 小时内上线。");
@@ -254,22 +261,9 @@ fn sitegen_build_and_open(work_dir: &Path) -> Result<(), String> {
         .canonicalize()
         .unwrap_or_else(|_| work_dir.join("dist").join("index.html"));
     println!("正在打开浏览器预览...");
-    open_browser(&dist.to_string_lossy());
+    crate::oauth::open_browser(&dist.to_string_lossy());
     println!("已打开：{}", dist.display());
     Ok(())
-}
-
-fn open_browser(url_or_path: &str) {
-    #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("cmd")
-        .args(["/c", "start", "", url_or_path])
-        .spawn();
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(url_or_path).spawn();
-    #[cfg(target_os = "linux")]
-    let _ = std::process::Command::new("xdg-open")
-        .arg(url_or_path)
-        .spawn();
 }
 
 fn step_welcome() -> Result<(), String> {
@@ -279,9 +273,10 @@ fn step_welcome() -> Result<(), String> {
     println!("══════════════════════════════");
     println!();
     println!("soil 将帮助你：");
-    println!("  1. 登录 GitHub 账号");
-    println!("  2. 创建或使用已有的文稿仓库");
-    println!("  3. 将你的文稿提交到「开源文艺」网站");
+    println!("  1. 选择投稿平台（GitHub / Gitee / GitCode）");
+    println!("  2. 登录平台账号");
+    println!("  3. 创建或使用已有的文稿仓库");
+    println!("  4. 将你的文稿提交到「开源文艺」网站");
     println!();
     println!("退出：任何输入处按 Esc 即可退出。");
     println!("提示：Ctrl+C 是复制快捷键，不会退出程序。");
@@ -289,12 +284,47 @@ fn step_welcome() -> Result<(), String> {
     Ok(())
 }
 
-/// Login to GitHub, reusing a previously saved token when it is still valid.
-fn step_login_or_load(cache_dir: &Path) -> Result<Auth, String> {
-    section("登录 GitHub");
+/// Ask which platform to submit through. Remembered in `{cache_dir}/config.toml`;
+/// a previously chosen platform is reused without asking again.
+fn step_choose_platform(cache_dir: &Path) -> Result<Platform, String> {
+    section("选择投稿平台");
 
-    if let Some(token) = crate::github::load_token(cache_dir) {
-        let auth = Auth::new(token);
+    if let Some(saved) = platform::load_saved_platform(cache_dir) {
+        println!(
+            "使用上次选择的平台: {}（如需更换，请删除 {} 中的 config.toml 后重试）",
+            saved.name(),
+            cache_dir.display()
+        );
+        return Ok(saved);
+    }
+
+    println!("你的文稿要提交到哪里？");
+    for (i, p) in Platform::ALL.iter().enumerate() {
+        println!("  {}. {}", i + 1, p.name());
+    }
+    let choice = ask("选择平台 (1/2/3)");
+    let platform = match choice.trim() {
+        "1" => Platform::Github,
+        "2" => Platform::Gitee,
+        "3" => Platform::GitCode,
+        _ => {
+            return Err(format!("无效的平台选择: {choice}（请输入 1、2 或 3）"));
+        }
+    };
+
+    if let Err(e) = platform::save_platform(cache_dir, platform) {
+        println!("警告: {e}（下次运行需要重新选择平台）");
+    }
+    Ok(platform)
+}
+
+/// Login to the chosen platform, reusing a previously saved token when it
+/// is still valid.
+fn step_login_or_load(cache_dir: &Path, platform: Platform) -> Result<Auth, String> {
+    section(&format!("登录 {}", platform.name()));
+
+    if let Some(token) = crate::github::load_token(cache_dir, platform) {
+        let auth = Auth::new(platform, token);
         match auth.get_user() {
             Ok(user) => {
                 println!("已登录: {}（复用已保存的登录凭证）", user.login);
@@ -306,61 +336,53 @@ fn step_login_or_load(cache_dir: &Path) -> Result<Auth, String> {
         }
     }
 
-    step_login(cache_dir)
+    step_login(cache_dir, platform)
 }
 
-fn step_login(cache_dir: &Path) -> Result<Auth, String> {
-    if crate::github::CLIENT_ID.is_empty() {
-        return Err("尚未配置 GitHub OAuth App 的 client_id。\n\
-             请在 soil/src/github.rs 中设置 CLIENT_ID 常量。"
-            .into());
+fn step_login(cache_dir: &Path, platform: Platform) -> Result<Auth, String> {
+    if platform.client_id().is_empty() {
+        return Err(format!(
+            "尚未配置 {} OAuth App 的 client_id。\n\
+             请在 soil/src/platform.rs 的 Platform::client_id() 中设置。",
+            platform.name()
+        ));
     }
 
-    println!("正在请求设备验证码...");
-    let dc = crate::github::request_device_code()?;
-    println!();
-    println!("请在浏览器中打开以下网址：");
-    println!();
-    println!("    {}", dc.verification_uri);
-    println!();
-    println!("输入验证码：{}", dc.user_code);
-    println!();
-    println!("等待授权中...（最长等待 5 分钟）");
-    println!();
-
-    let token = crate::github::poll_for_token(&dc)?;
+    let token = match platform {
+        Platform::Github => {
+            println!("正在请求设备验证码...");
+            let dc = crate::github::request_device_code()?;
+            println!();
+            println!("请在浏览器中打开以下网址：");
+            println!();
+            println!("    {}", dc.verification_uri);
+            println!();
+            println!("输入验证码：{}", dc.user_code);
+            println!();
+            println!("等待授权中...（最长等待 5 分钟）");
+            println!();
+            crate::github::poll_for_token(&dc)?
+        }
+        Platform::Gitee | Platform::GitCode => crate::oauth::login_with_browser(platform)?,
+    };
     println!("授权成功！");
 
-    if let Err(e) = crate::github::save_token(cache_dir, &token) {
+    if let Err(e) = crate::github::save_token(cache_dir, platform, &token) {
         println!("警告: {e}（本次登录仍可使用，下次启动需重新登录）");
     }
 
-    Ok(Auth::new(token))
+    Ok(Auth::new(platform, token))
 }
 
-/// Parse a GitHub repository reference (URL or `owner/repo`) into a GitHubRepo.
-fn repo_from_url(url: &str) -> Result<GitHubRepo, String> {
-    let mut trimmed = url.trim().trim_end_matches('/');
-    trimmed = trimmed.strip_suffix(".git").unwrap_or(trimmed);
-    trimmed = trimmed.strip_prefix("git@github.com:").unwrap_or(trimmed);
-
-    let parts: Vec<&str> = trimmed.split('/').collect();
-    let (owner, repo_name) = if let Some(pos) = parts.iter().position(|p| *p == "github.com") {
-        let after = &parts[pos + 1..];
-        if after.len() < 2 {
-            return Err(format!("仓库 URL 格式不正确: {url}"));
-        }
-        (after[0], after[1])
-    } else if parts.len() == 2 {
-        (parts[0], parts[1])
-    } else {
-        return Err(format!("仓库 URL 格式不正确: {url}"));
-    };
-
-    Ok(GitHubRepo {
+/// Parse a repository reference (URL or `owner/repo`) into a Repo, detecting
+/// the hosting platform from the URL.
+fn repo_from_url(url: &str) -> Result<Repo, String> {
+    let (platform, owner, repo_name) = platform::parse_repo_url(url)?;
+    Ok(Repo {
+        platform,
         full_name: format!("{owner}/{repo_name}"),
-        clone_url: format!("https://github.com/{owner}/{repo_name}.git"),
-        html_url: format!("https://github.com/{owner}/{repo_name}"),
+        clone_url: None,
+        html_url: None,
     })
 }
 
@@ -370,7 +392,7 @@ fn repo_from_url(url: &str) -> Result<GitHubRepo, String> {
 /// force push (not delete-and-recreate). The folder itself is the repo's
 /// local working copy: it gets initialized, committed and pushed before
 /// returning.
-fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<GitHubRepo, String> {
+fn step_manuscript(auth: &Auth, user: &User) -> Result<Repo, String> {
     section("文稿目录与仓库");
 
     let dir = std::env::current_dir().map_err(|e| format!("无法获取当前目录: {e}"))?;
@@ -386,7 +408,11 @@ fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<GitHubRepo, String>
         repo_from_url(url)?
     } else if is_git {
         println!("检测到该目录已是 git 仓库，但未配置远程仓库(origin)。");
-        let url = ask("请输入你的 GitHub 仓库 URL (如 https://github.com/user/repo):");
+        let example = format!(
+            "https://{}/user/repo",
+            auth.platform.web_base().trim_start_matches("https://")
+        );
+        let url = ask(&format!("请输入你的仓库 URL (如 {example}):"));
         repo_from_url(&url)?
     } else {
         println!("该目录还不是 git 仓库，将为你创建新仓库。");
@@ -395,17 +421,18 @@ fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<GitHubRepo, String>
         println!("正在创建仓库（公开仓库——网站构建需要公开访问你的文稿）...");
         match auth.create_repo(&repo_name, &desc) {
             Ok(repo) => {
-                println!("仓库已创建: {}", repo.html_url);
+                println!("仓库已创建: {}", repo.html_url());
                 repo
             }
             Err(e) if e.contains("already exists") => {
                 println!(
                     "仓库「{repo_name}」已存在，将用你的文稿内容覆盖（保留远端历史，普通 push）。"
                 );
-                GitHubRepo {
+                Repo {
+                    platform: auth.platform,
                     full_name: format!("{}/{}", user.login, repo_name),
-                    clone_url: format!("https://github.com/{}/{}.git", user.login, repo_name),
-                    html_url: format!("https://github.com/{}/{}", user.login, repo_name),
+                    clone_url: None,
+                    html_url: None,
                 }
             }
             Err(e) => return Err(e),
@@ -419,23 +446,21 @@ fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<GitHubRepo, String>
         git::branch_main(&dir)?;
     }
     if existing_origin.is_none() {
-        let repo_url = format!("https://github.com/{}.git", repo.full_name);
+        let repo_url = repo.clone_url();
         git::add_remote(&repo_url, &dir)?;
     }
 
     // Configure commit identity
     let display = user.name.as_deref().unwrap_or(&user.login);
-    let email = user
-        .email
-        .as_deref()
-        .unwrap_or("soil@users.noreply.github.com");
+    let default_email = format!("soil@users.noreply.{}", auth.platform.noreply_domain());
+    let email = user.email.as_deref().unwrap_or(&default_email);
     git::config_user(display, email, &dir)?;
 
-    // If SSH to GitHub works for this user, route HTTPS traffic over SSH
-    // (local config only) — much more reliable on flaky networks.
-    if git::ssh_available() {
+    // If SSH to the platform works for this user, route HTTPS traffic over
+    // SSH (local config only) — much more reliable on flaky networks.
+    if git::ssh_available(auth.platform) {
         println!("检测到 SSH 可用，将使用 SSH 通道加速推送。");
-        git::configure_ssh_insteadof(&dir)?;
+        git::configure_ssh_insteadof(&dir, auth.platform)?;
     }
 
     // Commit & push — only push when there is something new to push.
@@ -462,7 +487,7 @@ fn step_manuscript(auth: &Auth, user: &GitHubUser) -> Result<GitHubRepo, String>
                 git::push_upstream(&dir)?;
             }
         }
-        println!("文稿已推送到 {}", repo.html_url);
+        println!("文稿已推送到 {}", repo.html_url());
     } else {
         println!("文稿已与远端同步，无需推送。");
     }
@@ -511,7 +536,7 @@ fn normalize_git_url(url: &str) -> String {
 /// maintainers clone the upstream directly; everyone else forks first.
 fn step_prepare_work_copy(
     auth: &Auth,
-    user: &GitHubUser,
+    user: &User,
     upstream_owner: &str,
     upstream_repo: &str,
     is_maintainer: bool,
@@ -526,9 +551,9 @@ fn step_prepare_work_copy(
             println!("正在 Fork {upstream_owner}/{upstream_repo}...");
             match auth.fork_repo(upstream_owner, upstream_repo) {
                 Ok(fork) => {
-                    println!("Fork 完成: {}", fork.html_url);
-                    // Wait a moment for GitHub to set up the fork
-                    println!("等待 GitHub 准备仓库...");
+                    println!("Fork 完成: {}", fork.html_url());
+                    // Wait a moment for the platform to set up the fork
+                    println!("等待平台准备仓库...");
                     std::thread::sleep(std::time::Duration::from_secs(5));
                 }
                 Err(e) => {
@@ -540,23 +565,18 @@ fn step_prepare_work_copy(
             (user.login.clone(), "Fork".to_string())
         };
 
-        let auth_url = format!(
-            "https://{token}@github.com/{owner}/{repo}.git",
-            token = auth.token,
-            owner = owner,
-            repo = upstream_repo
-        );
+        let clone_url = auth.platform.repo_https_url(&owner, upstream_repo);
         println!("正在克隆{label}（v1 分支）...");
-        git::clone_branch(&auth_url, "v1", work_dir)?;
+        git::clone_branch(&clone_url, "v1", work_dir)?;
 
-        // Strip the token out of the stored remote URL (security)
-        let clean_url = format!("https://github.com/{owner}/{upstream_repo}.git");
-        git::add_remote(&clean_url, work_dir)?;
+        // The fork is public, so the clone needs no credentials; keep the
+        // stored remote URL free of any token (security).
+        git::add_remote(&clone_url, work_dir)?;
     } else if is_maintainer {
         println!("本地已有副本，正在更新（v1 分支）...");
         // Make sure origin points at the upstream (an old cached clone may
         // be a fork), then refresh v1 from it.
-        let upstream_url = format!("https://github.com/{upstream_owner}/{upstream_repo}.git");
+        let upstream_url = auth.platform.repo_https_url(upstream_owner, upstream_repo);
         git::add_remote(&upstream_url, work_dir)?;
         git::fetch_origin(work_dir)?;
         git::checkout_branch("v1", work_dir)?;
@@ -565,7 +585,7 @@ fn step_prepare_work_copy(
         // The fork may be stale or predate the v1 branch: sync local v1 and
         // the fork's origin/v1 from upstream.
         println!("本地已有副本，正在与上游同步（v1 分支）...");
-        let upstream_url = format!("https://github.com/{upstream_owner}/{upstream_repo}.git");
+        let upstream_url = auth.platform.repo_https_url(upstream_owner, upstream_repo);
         git::ensure_upstream_remote(&upstream_url, work_dir)?;
         git::fetch_upstream(work_dir)?;
         git::sync_branch_from_upstream("v1", work_dir)?;
@@ -573,17 +593,15 @@ fn step_prepare_work_copy(
 
     // Configure git identity
     let display = user.name.as_deref().unwrap_or(&user.login);
-    let email = user
-        .email
-        .as_deref()
-        .unwrap_or("soil@users.noreply.github.com");
+    let default_email = format!("soil@users.noreply.{}", auth.platform.noreply_domain());
+    let email = user.email.as_deref().unwrap_or(&default_email);
     git::config_user(display, email, work_dir)?;
 
-    // Route GitHub HTTPS traffic over SSH when available (local config only;
+    // Route HTTPS traffic over SSH when available (local config only;
     // .gitmodules URLs stay HTTPS so the site CI can clone without creds).
-    if git::ssh_available() {
+    if git::ssh_available(auth.platform) {
         println!("检测到 SSH 可用，将使用 SSH 通道加速推送。");
-        git::configure_ssh_insteadof(work_dir)?;
+        git::configure_ssh_insteadof(work_dir, auth.platform)?;
     }
 
     Ok(())
@@ -600,12 +618,12 @@ fn step_prepare_work_copy(
 /// lag behind upstream, so a locally-clean submission can still collide with
 /// newer upstream authors at submit time.
 fn decide_and_submit(
-    user: &GitHubUser,
-    manuscript_repo: &GitHubRepo,
+    user: &User,
+    manuscript_repo: &Repo,
     work_dir: &Path,
 ) -> Result<(String, bool, bool), String> {
     let modules = read_fork_gitmodules(work_dir);
-    let repo_url = format!("https://github.com/{}.git", manuscript_repo.full_name);
+    let repo_url = manuscript_repo.clone_url();
 
     if let Some((path, _)) = modules
         .iter()
@@ -634,7 +652,7 @@ fn decide_and_submit(
 /// Returns whether a commit was actually made (false when the submodule was
 /// already up to date — nothing changed, so no commit/push happens).
 fn submit_submodule(
-    manuscript_repo: &GitHubRepo,
+    manuscript_repo: &Repo,
     author_name: &str,
     is_update: bool,
     work_dir: &Path,
@@ -645,7 +663,7 @@ fn submit_submodule(
         git::submodule_update(&author_dir, work_dir)?;
     } else {
         println!("正在添加子模块...");
-        let submodule_url = format!("https://github.com/{}.git", manuscript_repo.full_name);
+        let submodule_url = manuscript_repo.clone_url();
         git::submodule_add(&submodule_url, &author_dir, work_dir)?;
     }
 
@@ -672,10 +690,10 @@ fn submit_submodule(
 /// Open a PR from the user's fork (v1 branch) to the upstream v1 branch.
 fn create_author_pr(
     auth: &Auth,
-    user: &GitHubUser,
+    user: &User,
     upstream_owner: &str,
     upstream_repo: &str,
-    manuscript_repo: &GitHubRepo,
+    manuscript_repo: &Repo,
     author_name: &str,
     is_update: bool,
 ) -> Result<PullRequest, String> {
@@ -688,7 +706,7 @@ fn create_author_pr(
     };
     let body = format!(
         "通过 soil 工具提交。\n\n文稿仓库: {}",
-        manuscript_repo.html_url
+        manuscript_repo.html_url()
     );
     println!("正在创建 Pull Request...");
     auth.create_pr(upstream_owner, upstream_repo, &title, &head, "v1", &body)

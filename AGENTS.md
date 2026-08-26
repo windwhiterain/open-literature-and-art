@@ -24,24 +24,31 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 
 ## 上游仓库（soil 相关，容易猜错）
 
-- 上游 = **`windwhiterain/open-literature-and-art`**（main.rs `UPSTREAM_OWNER/REPO` 硬编码；不存在 open-literature-and-art 组织）
+- 上游按平台取：**`platform.rs::Platform::upstream()`** 返回 `(owner, repo)`——GitHub: `windwhiterain/open-literature-and-art`；Gitee: `xiaosijicloud/open-literature-and-art`；GitCode: `whiting/open-literature-and-art`（不存在 open-literature-and-art 组织，GitHub owner 名在国内平台未注册，国内上游是**镜像账号名**，勿改回 windwhiterain）
+- **多平台镜像**：soil 支持 GitHub / Gitee / GitCode 三平台投稿（`platform.rs::Platform`）。国内镜像仓库为 **Gitee: `xiaosijicloud/open-literature-and-art`、GitCode: `whiting/open-literature-and-art`**（同名仓库，含 v1 分支）。子模块仓库 `literature-and-art` 也各有一份镜像（`xiaosijicloud` / `whiting` 名下，仅 master 分支）
 - **v1 分支不是 default branch**——所有操作必须在 v1 上：clone 用 `-b v1`，已有副本先 `checkout v1`，PR 的 head/base 都是 v1
-- 仓库 owner（windwhiterain）是维护者：soil 用 `permissions.push` 检测（`has_push_permission`），维护者**跳过 fork/PR 直接 push 上游 v1**，普通用户 fork + PR
+- 仓库 owner（windwhiterain，GitHub；国内平台分别对应 xiaosijicloud / whiting）是维护者：soil 用 `has_push_permission` 检测，维护者**跳过 fork/PR 直接 push 上游 v1**，普通用户 fork + PR。三平台判定方式不同（见下）
 
 ## soil 核心业务规则（wizard.rs）
 
+**平台选择**：`step_choose_platform` 在 wizard 开头询问（1.GitHub 2.Gitee 3.GitCode），选择存 `{data_dir}/soil/config.toml`（`platform = "gitee"`，手写解析，不依赖 toml crate），下次直接复用上次平台。所有 URL（克隆/remote/子模块/PR）由 `platform.web_base()` / `api_base()` 生成，**禁止内联 `https://github.com/...`**
+
 **文稿仓库决策**（先问目录路径，按目录状态分流）：
-- 目录是 git 仓库且有 origin → 复用（`repo_from_url` 解析，支持 https/ssh/owner-repo 格式）
+- 目录是 git 仓库且有 origin → 复用（`repo_from_url` 解析，支持 https/ssh/owner-repo 格式，**自动识别平台**：github.com/gitee.com/gitcode.com 与 `git@host:` 前缀）
 - 目录是 git 仓库无 origin → 问仓库 URL
 - 目录不是 git 仓库 → 创建新仓库；`create_repo` 报 422 `already exists` → **覆盖**：普通 push 失败后 `pull_remote_ours`（`git pull --allow-unrelated-histories -s ours`，保留远端历史、内容=本地目录），**绝不 force push**
 
-**作者名决策**：读本地 work_dir `.gitmodules` 判断——repo URL 已收录 → 自动更新（`submodule update --init --remote`）；未收录 → 问作者名。**名字冲突在提交时检测**（`is_name_conflict` 匹配 git 的 `already exists`），提示换名字重试，不在本地预检（fork 可能落后上游）。
+**作者名决策**：读本地 work_dir `.gitmodules` 判断——repo URL 已收录 → 自动更新（`submodule update --init --remote`）；未收录 → 问作者名。**名字冲突在提交时检测**（`is_name_conflict` 匹配 git 的 `already exists`），提示换名字重试，不在本地预检（fork 可能落后上游）。**子模块 URL 按用户所在平台写**（`.gitmodules` 会混有 gitee/gitcode 地址；sitegen 的 `normalize_repo_url` 对 https URL 通吃，CI 从海外拉国内公开仓库没问题）
 
 **提交去重**（防重复提交/空提交）：
 - `is_ahead_of_upstream`（`git rev-list --count @{u}..HEAD`）——无未推送提交则跳过 push（空 push 在网络差时会挂住）
 - `has_staged_changes`——无变更则跳过 commit/push/PR（更新模式重跑时子模块可能已最新）
 
-**登录**：OAuth device flow（`github.rs` CLIENT_ID 硬编码，勿改）；token 持久化到 `{data_dir}/soil/token.txt`（Windows: `%APPDATA%\soil\`），启动时 `load_token` + `/user` 验证复用。缓存目录 `{data_dir}/soil/`：`fork/`（本地工作副本）、`token.txt`。
+**登录（多平台，oauth.rs + github.rs）**：
+- GitHub：OAuth **device flow**（`platform.rs` CLIENT_ID 硬编码，勿改）——请求设备码 → 用户浏览器输码授权 → 轮询拿 token
+- Gitee/GitCode：**授权码模式**（两家都不支持 device flow）——`oauth.rs::login_with_browser` 起本地回调服务器 `127.0.0.1:8765`，打印授权 URL 并自动开浏览器，回调捕获 code 换 token。**回调端口必须与注册 OAuth 应用时的 redirect_uri 一致**（`http://127.0.0.1:8765/callback`）；Gitee 的 token 参数全在 form body，GitCode 的 client_secret 在 form body、其余在 query（`oauth.rs::exchange_token` 分支处理）
+- token 持久化**按平台分文件**：`{data_dir}/soil/token_github.txt` / `token_gitee.txt` / `token_gitcode.txt`（Windows: `%APPDATA%\soil\`），启动时 `load_token` + `/user` 验证复用。缓存目录 `{data_dir}/soil/`：`fork/`（本地工作副本）、`token_{平台}.txt`、`config.toml`
+- **维护者判定（has_push_permission）三平台不同**：GitHub 用 repo 详情 `permissions.push`；Gitee 用 `/repos/{o}/{r}/collaborators/{username}/permission` 的顶层 `permission` 字符串（"push"/"admin"）——Gitee repo 详情**没有** permissions 字段；GitCode 用 repo 详情 `owner.login` 或 `members` 数组包含该用户名——GitCode 的 `members/{username}` 端点只支持 PUT（更新），不支持 GET
 
 **本地预览**（提交流程末尾）：`submodule_init` 只拉**当前作者**子模块（`git submodule update --init`，用 gitlink 记录的 commit，不加 `--remote`）→ 进程内 `sitegen::run` 构建 → `cmd /c start` 打开 `dist/index.html`。
 
@@ -49,7 +56,7 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 
 - **Ctrl+C 被 ctrlc handler 吞掉**（终端里它是复制快捷键），进程不退出；退出键是 **Esc**（`is_quit` 检测 `\u{1b}` 前缀，行缓冲下按 Esc 后回车）。所有 y/n 确认已移除（直接继续）
 - **网络类 git 操作无限重试**（`run_git_network`：clone/fetch/pull/push/submodule 等），每轮打印"第 N 次失败"；`is_network_error` 分类（unable to access/connection/timeout/reset/ssl 等）——认证失败、仓库不存在等**非网络错误立即报出**。本地操作（add/commit/checkout/config/rev-list）不重试
-- **SSH 自动探测**（`ssh_available`：`~/.ssh` 有 key + `ssh -T -o BatchMode=yes -o ConnectTimeout=10` 认证成功）→ 配置 `url.git@github.com:.insteadOf https://github.com/`（仅本地 config，不提交；`.gitmodules` 里的 URL 保持 HTTPS，CI 无凭据克隆需要）
+- **SSH 自动探测**（`git.rs::ssh_available(platform)`，按平台缓存：`~/.ssh` 有 key + `ssh -T -o BatchMode=yes -o ConnectTimeout=10` 认证成功）→ 配置 `url.{ssh_host}:.insteadOf {web_base}/`（仅本地 config，不提交；`.gitmodules` 里的 URL 保持 HTTPS，CI 无凭据克隆需要）。GitHub 额外探测 443 备用通道（`ssh.github.com:443`，官方为受限网络设计）并在 443 可用时写 `core.sshCommand`；Gitee/GitCode 无 443 通道，只探测各自 host（`git@gitee.com` / `git@gitcode.com`）
 - 无限重试期间无法用 Ctrl+C/Esc 停止（没有输入点），只能关终端
 
 ## 核心业务规则（sitegen scan.rs）
@@ -108,6 +115,12 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 **workflow 联动（GITHUB_TOKEN 机制）**：workflow 内部用 `GITHUB_TOKEN` 发起的 push **不会触发任何其他 workflow**（GitHub 防递归设计，仅 `workflow_dispatch`/`repository_dispatch` 例外；人工 push 正常触发）。因此：
 - `auto-update-submodules.yml`（每日 03:57 UTC，拉 submodule 最新提交并 push）更新后必须显式 `gh workflow run deploy.yml --ref v1` 触发部署（已实现，依赖 `actions: write` 权限）——不要改成"push 后等 deploy 自动触发"或删掉该步骤
 - submodule 指针变更本身匹配 deploy.yml 的 `authors/**` paths 过滤，但事件层面已被拦掉，paths 过滤救不回来
+
+`sync-domestic.yml`（国内外镜像双向同步，每日 04:27 UTC + `workflow_dispatch`）：
+- **pull-back job**：fetch Gitee/GitCode 镜像 v1 → 把镜像领先的提交 **merge** 回 GitHub v1（`merge-base --is-ancestor` 判断是否有新提交；发生冲突就 job 失败、人工处理，**绝不覆盖/force push**）→ push 回 GitHub → 有变更时显式 `gh workflow run deploy.yml --ref v1`。单家镜像 fetch 失败不阻塞另一家（`|| echo`，下轮自愈）
+- **mirror-out job**（`needs: pull-back`）：push GitHub v1 → Gitee/GitCode 主仓库（`https://oauth2:${TOKEN}@...`，token 来自 repo secrets `GITEE_TOKEN`/`GITCODE_TOKEN`——**勿删 secrets，勿把 token 明文写进 workflow**）；子模块镜像（`literature-and-art` 的 HEAD:master）尽力而为，失败不红
+- **顺序固定**：先 pull-back 再 mirror-out（pull-back 失败 → mirror-out 跳过，避免用旧 GitHub 状态覆盖国内新提交；即使执行也是非快进被拒）
+- 国内镜像 owner 与 GitHub 不同名（见"上游仓库"节），改镜像 URL 时三处一起改（本 workflow、`platform.rs::upstream()`、AGENTS.md）
 
 `release.yml`（Build Release Binaries）要点：
 - 构建命令是 `cargo build --release -p soil`（裸 build 只出 sitegen，见上）

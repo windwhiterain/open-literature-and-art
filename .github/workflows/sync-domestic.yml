@@ -1,0 +1,116 @@
+name: Sync Domestic Mirrors
+
+# 国内外镜像双向同步，让国内平台（Gitee/GitCode）与 GitHub 的 v1 分支保持一致：
+# - 回流（pull-back）：国内 PR 合入后，国内镜像 v1 领先 → 合并回 GitHub v1。
+#   用 merge 而非覆盖，保留 GitHub 侧的历史（维护者 push、自动更新子模块等提交）。
+# - 镜像（mirror-out）：把 GitHub v1 的最新提交推送到 Gitee/GitCode 镜像，
+#   否则国内用户 fork/PR 的永远是旧内容。
+#
+# 国内镜像位置（owner 是各平台的镜像账号，与 GitHub 上游不同名）：
+#   Gitee   https://gitee.com/xiaosijicloud/open-literature-and-art
+#   GitCode https://gitcode.com/whiting/open-literature-and-art
+# 子模块镜像：xiaosijicloud/literature-and-art（Gitee）、whiting/literature-and-art（GitCode）
+
+on:
+  schedule:
+    # 每天 04:27 UTC——晚于 auto-update-submodules（03:57），
+    # 让当晚的子模块指针更新在同一天镜像出去。
+    - cron: "27 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: sync-domestic
+  cancel-in-progress: true
+
+jobs:
+  pull-back:
+    name: 回流国内提交到 GitHub
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 拉取国内镜像
+        # 镜像在海外 runner 上偶发不可达，单家失败不阻塞另一家，
+        # 本轮跳过、下轮自动补齐。
+        run: |
+          git remote add gitee https://gitee.com/xiaosijicloud/open-literature-and-art.git
+          git remote add gitcode https://gitcode.com/whiting/open-literature-and-art.git
+          git fetch gitee  || echo "⚠ 拉取 Gitee 镜像失败，本轮跳过"
+          git fetch gitcode || echo "⚠ 拉取 GitCode 镜像失败，本轮跳过"
+
+      - name: 合并国内镜像的新提交
+        id: pullback
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          before=$(git rev-parse HEAD)
+          for remote in gitee gitcode; do
+            if git show-ref --verify --quiet "refs/remotes/$remote/v1"; then
+              if ! git merge-base --is-ancestor "$remote/v1" HEAD; then
+                echo "→ 合并 ${remote} 镜像的新提交"
+                git merge --no-edit -m "合并国内镜像 ${remote} 的提交" "$remote/v1"
+              fi
+            fi
+          done
+          # 发生冲突时 git merge 失败、job 亮红——保持现状，人工解决，绝不覆盖
+          if [ "$(git rev-parse HEAD)" != "$before" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 推回 GitHub v1
+        if: steps.pullback.outputs.changed == 'true'
+        run: git push
+
+      - name: 触发站点部署
+        # GITHUB_TOKEN 的 push 不会触发其他 workflow（GitHub 防递归设计），
+        # 合并出站内容后必须显式 dispatch 部署。
+        if: steps.pullback.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref v1
+
+  mirror-out:
+    name: 镜像 GitHub v1 到国内平台
+    needs: pull-back
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 推送到 Gitee 主仓库
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          git push "https://oauth2:${GITEE_TOKEN}@gitee.com/xiaosijicloud/open-literature-and-art.git" v1
+
+      - name: 推送到 GitCode 主仓库
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+        run: |
+          git push "https://oauth2:${GITCODE_TOKEN}@gitcode.com/whiting/open-literature-and-art.git" v1
+
+      - name: 同步子模块镜像（尽力而为，失败不影响主仓库同步）
+        # 子模块仓库同步是「锦上添花」：作者手稿内容镜像到国内，供国内 fork 时
+        # 看到最新内容。失败通常意味着国内子模块有新提交领先，留给后续回流处理。
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+        run: |
+          if [ -z "$GITEE_TOKEN" ] || [ -z "$GITCODE_TOKEN" ]; then
+            echo "⚠ 缺少 GITEE_TOKEN/GITCODE_TOKEN secret，跳过子模块镜像同步"
+            exit 0
+          fi
+          git -C authors/whiting push "https://oauth2:${GITEE_TOKEN}@gitee.com/xiaosijicloud/literature-and-art.git" HEAD:master \
+            || echo "⚠ 子模块镜像推送失败（Gitee）"
+          git -C authors/whiting push "https://oauth2:${GITCODE_TOKEN}@gitcode.com/whiting/literature-and-art.git" HEAD:master \
+            || echo "⚠ 子模块镜像推送失败（GitCode）"

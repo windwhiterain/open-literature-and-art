@@ -1,6 +1,8 @@
 mod git;
 mod github;
 mod meta;
+mod oauth;
+mod platform;
 mod wizard;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,9 +11,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// program keeps running — Ctrl+C is the terminal's copy shortcut, not quit.
 /// Exit is via Esc or `q` instead.
 pub static CTRL_C_PRESSED: AtomicBool = AtomicBool::new(false);
-
-const UPSTREAM_OWNER: &str = "windwhiterain";
-const UPSTREAM_REPO: &str = "open-literature-and-art";
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -63,7 +62,7 @@ fn run_submit() {
     }
 
     // ── Run the wizard ──
-    match wizard::run(&cache_dir, UPSTREAM_OWNER, UPSTREAM_REPO) {
+    match wizard::run(&cache_dir) {
         Ok(result) => {
             println!("作者「{}」的文稿已成功提交！", result.author_name);
             if let Some(url) = result.pr_url {

@@ -1,6 +1,8 @@
+use crate::platform::Platform;
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 /// Check whether `git` is available on the system PATH.
@@ -23,22 +25,31 @@ enum SshChannel {
     Port443,
 }
 
-/// Whether SSH to GitHub is usable for this user: an SSH key exists, and the
-/// key authenticates against GitHub (network reachable, key registered).
-/// Probed once per run; result is cached.
-pub fn ssh_available() -> bool {
-    ssh_channel().is_some()
+/// Whether SSH to the platform is usable for this user: an SSH key exists,
+/// and the key authenticates against the platform (network reachable, key
+/// registered). Probed once per run per platform; results are cached.
+pub fn ssh_available(platform: Platform) -> bool {
+    ssh_channel(platform).is_some()
 }
 
-/// The SSH channel that works for this user, if any.
-/// Tries port 22 first, then GitHub's alternate endpoint on port 443 —
-/// port 22 is the one most often blocked on restricted networks.
-fn ssh_channel() -> Option<SshChannel> {
-    static CHANNEL: OnceLock<Option<SshChannel>> = OnceLock::new();
-    *CHANNEL.get_or_init(probe_ssh)
+/// The SSH channel that works for the platform, if any.
+/// For GitHub, tries port 22 first, then the alternate endpoint on port 443
+/// — port 22 is the one most often blocked on restricted networks. Gitee and
+/// GitCode have no alternate endpoint, so only port 22 is probed.
+fn ssh_channel(platform: Platform) -> Option<SshChannel> {
+    static CACHE: OnceLock<Mutex<HashMap<Platform, Option<SshChannel>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(channel) = cache.lock().ok().and_then(|m| m.get(&platform).copied()) {
+        return channel;
+    }
+    let channel = probe_ssh(platform);
+    if let Ok(mut map) = cache.lock() {
+        map.insert(platform, channel);
+    }
+    channel
 }
 
-fn probe_ssh() -> Option<SshChannel> {
+fn probe_ssh(platform: Platform) -> Option<SshChannel> {
     // 1. An SSH key must exist
     let Some(home) = dirs::home_dir() else {
         return None;
@@ -58,7 +69,8 @@ fn probe_ssh() -> Option<SshChannel> {
     }
 
     // 2. Auth probe: fast, non-interactive, bounded timeout.
-    // GitHub replies "successfully authenticated" on stderr (exit code 1).
+    // The platform replies "successfully authenticated" on stderr
+    // (exit code 1).
     fn auth_ok(args: &[&str]) -> bool {
         let output = Command::new("ssh")
             .arg("-o")
@@ -77,32 +89,40 @@ fn probe_ssh() -> Option<SshChannel> {
         }
     }
 
-    if auth_ok(&["git@github.com"]) {
-        return Some(SshChannel::Port22);
+    match platform {
+        Platform::Github => {
+            if auth_ok(&["git@github.com"]) {
+                return Some(SshChannel::Port22);
+            }
+            if auth_ok(&["-p", "443", "git@ssh.github.com"]) {
+                return Some(SshChannel::Port443);
+            }
+            None
+        }
+        // Gitee/GitCode have no official 443 SSH fallback; plain port 22
+        // is their only SSH route.
+        Platform::Gitee => auth_ok(&["git@gitee.com"]).then_some(SshChannel::Port22),
+        Platform::GitCode => auth_ok(&["git@gitcode.com"]).then_some(SshChannel::Port22),
     }
-    if auth_ok(&["-p", "443", "git@ssh.github.com"]) {
-        return Some(SshChannel::Port443);
-    }
-    None
 }
 
-/// Make every `https://github.com/...` fetch/push in this repo go over SSH
+/// Make every `https://{platform}/...` fetch/push in this repo go over SSH
 /// instead (local config only, never committed). Used when SSH is available
 /// and HTTPS is flaky; without it the repo just uses HTTPS as-is.
 ///
-/// When only the port-443 channel works, additionally configure
+/// When only the GitHub port-443 channel works, additionally configure
 /// `core.sshCommand` so the ssh invoked by git actually reaches
 /// `ssh.github.com:443` (which the plain `git@github.com` URL would miss).
-pub fn configure_ssh_insteadof(repo_dir: &Path) -> Result<(), String> {
+pub fn configure_ssh_insteadof(repo_dir: &Path, platform: Platform) -> Result<(), String> {
     run_git(
         &[
             "config",
-            "url.git@github.com:.insteadOf",
-            "https://github.com/",
+            &format!("url.{}:.insteadOf", platform.ssh_host()),
+            &format!("{}/", platform.web_base()),
         ],
         Some(repo_dir),
     )?;
-    if ssh_channel() == Some(SshChannel::Port443) {
+    if platform == Platform::Github && ssh_channel(platform) == Some(SshChannel::Port443) {
         run_git(
             &[
                 "config",
