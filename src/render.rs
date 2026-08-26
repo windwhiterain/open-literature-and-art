@@ -1,62 +1,64 @@
 use crate::model::{Article, Author, Chapter, Collection, Site};
 use crate::paths;
 
-const CSS: &str = r#"*{box-sizing:border-box;margin:0;padding:0}body{font-family:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC","SimHei",sans-serif;line-height:1.9;color:#222;background:#fff;max-width:42rem;margin:0 auto;padding:1.5rem 1rem;font-size:18px}
-.topbar{display:flex;justify-content:space-between;align-items:baseline;padding-bottom:.5rem;border-bottom:1px solid #eee;margin-bottom:1.5rem}
-.topbar .site-name{font-size:1.15rem;font-weight:700;color:#222;text-decoration:none}
-.topnav a{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#555;text-decoration:none;margin-left:1rem;font-size:15px}
-.topnav a:hover{color:#000}
-.topnav a.active{color:#222;font-weight:600;border-bottom:2px solid #222}
-.breadcrumb{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:15px;color:#666;margin-bottom:2rem;padding-bottom:.5rem;border-bottom:1px solid #eee}
-.breadcrumb a{color:#555;text-decoration:none}
-.breadcrumb a:hover{color:#000;text-decoration:underline}
+const CSS: &str = r#":root{color-scheme:light dark;--bg:#fff;--text:#222;--text-strong:#000;--text-secondary:#555;--text-tertiary:#666;--text-subtle:#888;--text-faint:#999;--link:#1a5fbf;--border:#eee;--border-strong:#ddd;--border-btn:#ccc;--border-btn-hover:#999;--card-bg:#fafafa;--card-hover-bg:#f2f2f2;--code-bg:#f5f5f5}
+*{box-sizing:border-box;margin:0;padding:0}body{font-family:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC","SimHei",sans-serif;line-height:1.9;color:var(--text);background:var(--bg);max-width:42rem;margin:0 auto;padding:1.5rem 1rem;font-size:18px}
+.topbar{display:flex;justify-content:space-between;align-items:baseline;padding-bottom:.5rem;border-bottom:1px solid var(--border);margin-bottom:1.5rem}
+.topbar .site-name{font-size:1.15rem;font-weight:700;color:var(--text);text-decoration:none}
+.topnav a{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text-secondary);text-decoration:none;margin-left:1rem;font-size:15px}
+.topnav a:hover{color:var(--text-strong)}
+.topnav a.active{color:var(--text);font-weight:600;border-bottom:2px solid var(--text)}
+.breadcrumb{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:15px;color:var(--text-tertiary);margin-bottom:2rem;padding-bottom:.5rem;border-bottom:1px solid var(--border)}
+.breadcrumb a{color:var(--text-secondary);text-decoration:none}
+.breadcrumb a:hover{color:var(--text-strong);text-decoration:underline}
 h1{font-size:2rem;text-align:center;margin:2rem 0 .5rem;font-weight:700}
-.subtitle{text-align:center;color:#888;font-size:15px;margin-bottom:1.5rem}
+.subtitle{text-align:center;color:var(--text-subtle);font-size:15px;margin-bottom:1.5rem}
 h2{font-size:1.4rem;margin:2rem 0 .8rem;font-weight:600}
 h3{font-size:1.15rem;margin:1.5rem 0 .5rem}
 p{margin:.8em 0}
-a{color:#1a5fbf;text-decoration:none}
+a{color:var(--link);text-decoration:none}
 a:hover{text-decoration:underline}
 em{font-style:normal}
 ul,ol{padding-left:1.5rem;margin:.8em 0}
 li{margin:.3em 0}
-blockquote{border-left:3px solid #ddd;margin:1em 0;padding:.3em 1em;color:#555}
-pre,code{font-family:"Cascadia Code","Fira Code",monospace;font-size:.9em;background:#f5f5f5;border-radius:4px}
+blockquote{border-left:3px solid var(--border-strong);margin:1em 0;padding:.3em 1em;color:var(--text-secondary)}
+pre,code{font-family:"Cascadia Code","Fira Code",monospace;font-size:.9em;background:var(--code-bg);border-radius:4px}
 code{padding:.1em .3em}
 pre{padding:1em;overflow-x:auto;margin:1em 0}
 pre code{padding:0;background:none}
-hr{border:none;border-top:1px solid #eee;margin:2rem 0}
+hr{border:none;border-top:1px solid var(--border);margin:2rem 0}
 img{max-width:100%;height:auto;border-radius:4px}
-.author-intro{margin-bottom:2rem;padding:1rem;background:#fafafa;border-radius:6px;font-size:16px}
+.author-intro{margin-bottom:2rem;padding:1rem;background:var(--card-bg);border-radius:6px;font-size:16px}
 .article-list{list-style:none;padding:0}
 .article-list li{margin:.7rem 0}
-.article-list .card{display:block;position:relative;padding:.85rem 1rem;background:#fafafa;border:1px solid #eee;border-radius:8px;color:#222;text-decoration:none;transition:background .15s,border-color .15s}
-.article-list .card:hover{background:#f2f2f2;border-color:#ddd;text-decoration:none}
-.article-list a.card:focus-visible{outline:2px solid #1a5fbf;outline-offset:2px}
-.article-list .card:has(.stretched:focus-visible){outline:2px solid #1a5fbf;outline-offset:2px}
+.article-list .card{display:block;position:relative;padding:.85rem 1rem;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);text-decoration:none;transition:background .15s,border-color .15s}
+.article-list .card:hover{background:var(--card-hover-bg);border-color:var(--border-strong);text-decoration:none}
+.article-list a.card:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+.article-list .card:has(.stretched:focus-visible){outline:2px solid var(--link);outline-offset:2px}
 .card .stretched{color:inherit;text-decoration:none}
 .card .stretched:focus-visible{outline:none}
 .card .stretched::after{content:'';position:absolute;inset:0}
 .card-title{font-size:1.1rem}
-.list-date{font-size:13px;color:#999;margin-left:.5em}
+.list-date{font-size:13px;color:var(--text-faint);margin-left:.5em}
 .list-author{font-size:13px;margin-left:.8em}
-.list-author a{color:#555;position:relative;z-index:1}
-.list-summary{font-size:14px;color:#666;margin:.2em 0 0}
-.empty-state{color:#999;text-align:center;padding:2rem}
-.author-line{text-align:center;color:#888;font-size:15px;margin:0 0 1.5rem}
-.author-line a{color:#555}
-.repo-line{text-align:center;color:#888;font-size:15px;margin:0 0 1.5rem}
-.repo-line a{color:#555}
-.article-meta{text-align:center;color:#999;font-size:14px;margin:.3rem 0 1rem}
-.summary{color:#555;border-left:3px solid #eee;padding:.3em 1em;margin:0 0 1.5em;font-size:16px}
+.list-author a{color:var(--text-secondary);position:relative;z-index:1}
+.list-summary{font-size:14px;color:var(--text-tertiary);margin:.2em 0 0}
+.empty-state{color:var(--text-faint);text-align:center;padding:2rem}
+.author-line{text-align:center;color:var(--text-subtle);font-size:15px;margin:0 0 1.5rem}
+.author-line a{color:var(--text-secondary)}
+.repo-line{text-align:center;color:var(--text-subtle);font-size:15px;margin:0 0 1.5rem}
+.repo-line a{color:var(--text-secondary)}
+.article-meta{text-align:center;color:var(--text-faint);font-size:14px;margin:.3rem 0 1rem}
+.summary{color:var(--text-secondary);border-left:3px solid var(--border);padding:.3em 1em;margin:0 0 1.5em;font-size:16px}
 .chapter-nav{display:flex;justify-content:space-between;margin-top:2.5rem;font-size:15px}
-.chapter-nav a{color:#555}
+.chapter-nav a{color:var(--text-secondary)}
 .chapter-nav .placeholder{visibility:hidden}
-.attachments{font-size:15px;color:#555;margin-top:1rem;padding:1rem;background:#fafafa;border-radius:6px}
+.attachments{font-size:15px;color:var(--text-secondary);margin-top:1rem;padding:1rem;background:var(--card-bg);border-radius:6px}
 .attachments ul{list-style:none;padding:0}
 .shuffle-bar{text-align:center;margin:2.5rem 0 1rem}
-#shuffle-btn{font-family:inherit;font-size:1rem;padding:.45rem 1.6rem;border:1px solid #ccc;border-radius:20px;background:#fff;color:#333;cursor:pointer}
-#shuffle-btn:hover{background:#f5f5f5;border-color:#999}
+#shuffle-btn{font-family:inherit;font-size:1rem;padding:.45rem 1.6rem;border:1px solid var(--border-btn);border-radius:20px;background:var(--bg);color:var(--text);cursor:pointer}
+#shuffle-btn:hover{background:var(--code-bg);border-color:var(--border-btn-hover)}
+@media (prefers-color-scheme: dark){:root{color-scheme:dark;--bg:#121212;--text:#e6e6e6;--text-strong:#fff;--text-secondary:#b8b8b8;--text-tertiary:#a0a0a0;--text-subtle:#8a8a8a;--text-faint:#777;--link:#8ab4f8;--border:#2f2f2f;--border-strong:#3a3a3a;--border-btn:#4a4a4a;--border-btn-hover:#5a5a5a;--card-bg:#1e1e1e;--card-hover-bg:#2a2a2a;--code-bg:#2a2a2a}}
 "#;
 
 /// Generate all pages and return a list of (path, content) pairs
@@ -285,6 +287,7 @@ fn page(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 {desc_meta}<title>{title} · 开源文艺</title>
 <style>{CSS}</style>
 </head>
