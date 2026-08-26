@@ -52,6 +52,54 @@ jobs:
       - name: Check soil compiles
         run: cargo build -p soil --release
 
+      # 国内镜像：把构建产物同步到 GitCode Pages 的专用站点仓库。
+      # GitCode 的静态网站托管在推送 main 后 ~1-2 分钟自动部署，无需人工点更新。
+      # best-effort：失败只标记该步骤，不阻断 GitHub Pages 部署（continue-on-error）。
+      # 站点仓库与源码镜像仓库（whiting/open-literature-and-art）分离，避免覆盖源码。
+      - name: Sync to GitCode Pages
+        continue-on-error: true
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+        run: |
+          SITE_REPO="open-literature-and-art-pages"
+          BASE="https://api.gitcode.com/api/v5"
+
+          if [ -z "$GITCODE_TOKEN" ]; then
+            echo "⚠ 缺少 GITCODE_TOKEN secret，跳过 GitCode Pages 同步"
+            exit 0
+          fi
+
+          # 1. 站点仓库不存在则创建（GitCode 与 Gitee 同构：v5 API，access_token 走 query）
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${BASE}/repos/whiting/${SITE_REPO}?access_token=${GITCODE_TOKEN}")
+          if [ "$code" = "404" ]; then
+            echo "→ 创建 GitCode 站点仓库 whiting/${SITE_REPO} ..."
+            curl -s -X POST \
+              -H "Content-Type: application/json" \
+              -d "{\"name\":\"${SITE_REPO}\",\"private\":false,\"description\":\"open-literature-and-art 静态站点镜像（GitCode Pages）\"}" \
+              "${BASE}/user/repos?access_token=${GITCODE_TOKEN}"
+            echo
+          elif [ "$code" != "200" ]; then
+            echo "⚠ 查询站点仓库返回 ${code}，仍尝试推送"
+          fi
+
+          # 2. 把 dist/ 强制推送到站点仓库 main，GitCode Pages 据此自动部署
+          cd dist || { echo "⚠ 未找到 dist，跳过"; exit 0; }
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://oauth2:${GITCODE_TOKEN}@gitcode.com/whiting/${SITE_REPO}.git"
+          git add -A
+          if git commit -q -m "Deploy open-literature-and-art site (${GITHUB_SHA::7})"; then
+            git push --force origin HEAD:main
+            echo "→ 已推送到 GitCode Pages: https://whiting.gitcode.io/${SITE_REPO}"
+          else
+            echo "站点内容无变化，跳过推送"
+          fi
+          # 清理嵌套 .git，避免后续 actions/upload-pages-artifact 把 .git 一并打进 GitHub Pages 产物
+          rm -rf .git
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 

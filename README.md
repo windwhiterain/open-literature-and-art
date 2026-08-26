@@ -11,6 +11,8 @@
 
 网站地址：<https://windwhiterain.github.io/open-literature-and-art/>
 
+**国内镜像**（GitCode Pages，国内访问更快）：<https://whiting.gitcode.io/open-literature-and-art-pages/>
+
 ## 相关页面
 
 - **[投稿指南](https://windwhiterain.github.io/open-literature-and-art/submit.html)**——如何用 `soil` 工具投稿：安装命令、命令详解、本地文稿库如何构建。对非程序员友好，无需学习 Git

@@ -114,6 +114,7 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 - checkout 必须 `submodules: recursive`（当前仅 `authors/whiting` 是子模块；`authors/test_user` 只是本地未跟踪的空目录残留，CI checkout 不存在）
 - 上传 `dist/` → GitHub Pages；仓库 Settings → Pages → Source 需手动设为 "GitHub Actions"（YAML 无法配置）
 - `dist/` 和 `target/` 已 gitignore
+- **GitCode Pages 镜像**（build job 内 `Sync to GitCode Pages` 步骤，`continue-on-error: true` best-effort，失败不阻断 GitHub Pages 部署）：把构建产物 `dist/` 强推到 **专用站点仓库** `whiting/open-literature-and-art-pages` 的 `main`（`https://oauth2:${GITCODE_TOKEN}@gitcode.com/whiting/open-literature-and-art-pages.git`），GitCode 静态网站托管据此在 ~1-2 分钟自动部署。**站点仓库必须与源码镜像仓库（`whiting/open-literature-and-art`）分离**——否则会用构建产物覆盖源码镜像、破坏 fork/PR 流程。仓库不存在时用 v5 API 自动创建（`POST {api_base}/user/repos?access_token=...`，与 `platform.rs::api_base()` 同源）；token 走 repo secret `GITCODE_TOKEN`（勿删、勿明文写进 workflow）。国内访问地址 `https://whiting.gitcode.io/open-literature-and-art-pages/`
 
 **workflow 联动（GITHUB_TOKEN 机制）**：workflow 内部用 `GITHUB_TOKEN` 发起的 push **不会触发任何其他 workflow**（GitHub 防递归设计，仅 `workflow_dispatch`/`repository_dispatch` 例外；人工 push 正常触发）。因此：
 - `auto-update-submodules.yml`（每日 03:57 UTC，拉 submodule 最新提交并 push）更新后必须显式 `gh workflow run deploy.yml --ref v1` 触发部署（已实现，依赖 `actions: write` 权限）——不要改成"push 后等 deploy 自动触发"或删掉该步骤
