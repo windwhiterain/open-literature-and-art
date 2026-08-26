@@ -1,7 +1,7 @@
 use crate::platform::Platform;
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -9,10 +9,139 @@ use std::time::Duration;
 pub fn is_git_installed() -> bool {
     Command::new("git")
         .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .is_ok_and(|s| s.success())
+}
+
+/// Try to install git automatically when it is missing, using the platform
+/// package manager. Returns true when git becomes available afterwards.
+///
+/// The install can take a few minutes (download + installer). On Windows a
+/// UAC prompt may appear; on macOS/Linux the terminal may ask for the sudo
+/// password. When auto-install is not possible, returns false and the caller
+/// prints the manual guide.
+pub fn auto_install_git() -> bool {
+    if is_git_installed() {
+        return true;
+    }
+    eprintln!();
+    eprintln!("未检测到 Git，正在尝试自动安装…");
+    let installed = install_git();
+    if installed && !is_git_installed() {
+        // The current process PATH predates the install; git for Windows
+        // lives outside it, so add its directory back in.
+        #[cfg(target_os = "windows")]
+        prepend_windows_git_to_path();
+    }
+    if is_git_installed() {
+        eprintln!("Git 安装成功！");
+        true
+    } else {
+        false
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn install_git() -> bool {
+    eprintln!("使用 winget 安装 Git for Windows…");
+    eprintln!("如弹出 UAC 授权窗口请点击「是」；安装可能需要几分钟。");
+    Command::new("winget")
+        .args([
+            "install",
+            "--id",
+            "Git.Git",
+            "-e",
+            "--source",
+            "winget",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ])
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+#[cfg(target_os = "macos")]
+fn install_git() -> bool {
+    if Command::new("brew")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        eprintln!("使用 Homebrew 安装 Git…（可能提示输入登录密码）");
+        return Command::new("brew")
+            .args(["install", "git"])
+            .status()
+            .is_ok_and(|s| s.success());
+    }
+    false
+}
+
+#[cfg(target_os = "linux")]
+fn install_git() -> bool {
+    let sudo_ok = Command::new("sudo")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if !sudo_ok {
+        return false;
+    }
+    if Command::new("apt-get")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        eprintln!("使用 apt 安装 Git…（可能提示输入 sudo 密码）");
+        return Command::new("sudo")
+            .args(["apt-get", "install", "-y", "git"])
+            .status()
+            .is_ok_and(|s| s.success());
+    }
+    if Command::new("dnf")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        eprintln!("使用 dnf 安装 Git…（可能提示输入 sudo 密码）");
+        return Command::new("sudo")
+            .args(["dnf", "install", "-y", "git"])
+            .status()
+            .is_ok_and(|s| s.success());
+    }
+    false
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn install_git() -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
+fn prepend_windows_git_to_path() {
+    const CANDIDATES: [&str; 2] = [
+        r"C:\Program Files\Git\cmd",
+        r"C:\Program Files (x86)\Git\cmd",
+    ];
+    for dir in CANDIDATES {
+        if Path::new(dir).join("git.exe").is_file() {
+            if let Ok(old) = std::env::var("PATH") {
+                let new = format!("{dir};{old}");
+                // SAFETY: called on the main thread before any other threads
+                // are spawned; no concurrent env access is possible.
+                unsafe { std::env::set_var("PATH", new) };
+            }
+            return;
+        }
+    }
 }
 
 /// Which GitHub SSH channel a probe found usable.
@@ -51,9 +180,7 @@ fn ssh_channel(platform: Platform) -> Option<SshChannel> {
 
 fn probe_ssh(platform: Platform) -> Option<SshChannel> {
     // 1. An SSH key must exist
-    let Some(home) = dirs::home_dir() else {
-        return None;
-    };
+    let home = dirs::home_dir()?;
     let ssh_dir = home.join(".ssh");
     let has_key = [
         "id_ed25519",

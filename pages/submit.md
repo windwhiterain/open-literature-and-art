@@ -1,11 +1,11 @@
 # 投稿指南
 
-开源文艺欢迎每一位创作者投稿。整个流程对非程序员友好：你只需要一个账号、装好 Git 和一个叫 `soil` 的小工具，剩下的由工具一步步引导完成，不需要学习任何 Git 命令。
+开源文艺欢迎每一位创作者投稿。整个流程对非程序员友好：你只需要一个账号和一个叫 `soil` 的小工具，剩下的由工具一步步引导完成，不需要学习任何 Git 命令。
 
 ## 投稿前准备
 
-1. **一个账号**：GitHub、Gitee 或 GitCode 任选其一（投稿时工具会让你选择平台；国内网络环境建议选 Gitee 或 GitCode）
-2. **安装 Git**：[git-scm.com/downloads](https://git-scm.com/downloads)。Windows 安装时记得勾选「Git from the command line and also from 3rd-party software」
+1. **一个账号**：GitHub、Gitee 或 GitCode 任选其一（投稿时工具会让你选择平台；国内网络环境建议选 Gitee 或 GitCode）。还没有账号也没关系——`soil` 登录时会提示注册地址，登录失败还会自动帮你打开注册页面
+2. **安装 Git**：一般不用手动装——如果系统里没有 Git，`soil submit` 首次运行检测到缺失时会自动安装（Windows 自动用 winget 安装，可能弹出 UAC 授权窗口点「是」即可；macOS 用 Homebrew；Linux 用 apt/dnf）。也可以手动安装：[git-scm.com/downloads](https://git-scm.com/downloads)
 3. **安装 soil 工具**：见下节
 
 ## 安装 soil

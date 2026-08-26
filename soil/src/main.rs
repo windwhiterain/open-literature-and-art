@@ -41,8 +41,8 @@ fn run_submit() {
 
     // ── Step 0: Environment checks ──
 
-    // 0a. Check git is installed
-    if !git::is_git_installed() {
+    // 0a. Check git is installed; auto-install (winget/brew/apt) when missing
+    if !git::auto_install_git() {
         git::print_git_install_guide();
         std::process::exit(1);
     }

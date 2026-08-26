@@ -348,10 +348,24 @@ fn step_login(cache_dir: &Path, platform: Platform) -> Result<Auth, String> {
         ));
     }
 
+    // Users without an account see the authorize page and get stuck; print
+    // the registration page up front so they can create one first.
+    println!();
+    println!(
+        "提示：还没有 {} 账号？可先在浏览器注册：{}",
+        platform.name(),
+        platform.signup_url()
+    );
+    println!("（已有账号请忽略此提示，继续按下方步骤登录）");
+    println!();
+
     let token = match platform {
         Platform::Github => {
             println!("正在请求设备验证码...");
-            let dc = crate::github::request_device_code()?;
+            let dc = match crate::github::request_device_code() {
+                Ok(dc) => dc,
+                Err(e) => return Err(login_failed_message(platform, &e)),
+            };
             println!();
             println!("请在浏览器中打开以下网址：");
             println!();
@@ -361,9 +375,15 @@ fn step_login(cache_dir: &Path, platform: Platform) -> Result<Auth, String> {
             println!();
             println!("等待授权中...（最长等待 5 分钟）");
             println!();
-            crate::github::poll_for_token(&dc)?
+            match crate::github::poll_for_token(&dc) {
+                Ok(t) => t,
+                Err(e) => return Err(login_failed_message(platform, &e)),
+            }
         }
-        Platform::Gitee | Platform::GitCode => crate::oauth::login_with_browser(platform)?,
+        Platform::Gitee | Platform::GitCode => match crate::oauth::login_with_browser(platform) {
+            Ok(t) => t,
+            Err(e) => return Err(login_failed_message(platform, &e)),
+        },
     };
     println!("授权成功！");
 
@@ -372,6 +392,23 @@ fn step_login(cache_dir: &Path, platform: Platform) -> Result<Auth, String> {
     }
 
     Ok(Auth::new(platform, token))
+}
+
+/// Wrap a login failure: report the cause, point at the registration page
+/// and open it in the browser (soil cannot create accounts itself — signup
+/// requires email verification and ToS acceptance).
+fn login_failed_message(platform: Platform, err: &str) -> String {
+    eprintln!();
+    eprintln!("{err}");
+    eprintln!();
+    eprintln!(
+        "还没有 {} 账号？注册地址：{}",
+        platform.name(),
+        platform.signup_url()
+    );
+    eprintln!("（已尝试为你打开注册页面）");
+    crate::oauth::open_browser(platform.signup_url());
+    format!("登录 {} 未完成，请重新运行 soil。", platform.name())
 }
 
 /// Parse a repository reference (URL or `owner/repo`) into a Repo, detecting

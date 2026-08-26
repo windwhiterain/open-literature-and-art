@@ -219,6 +219,16 @@ fn test_full_build() {
         "submit page nav active state missing"
     );
 
+    // Copy button script + styles are injected into every page
+    assert!(
+        index_html.contains("copy-btn"),
+        "copy button missing from homepage"
+    );
+    assert!(
+        submit_html.contains("copy-btn"),
+        "copy button missing from submit page"
+    );
+
     // Author page
     let author_index = out_dir.join("a/alice/index.html");
     assert!(author_index.exists(), "author page missing");

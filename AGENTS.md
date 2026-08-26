@@ -48,6 +48,8 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 - GitHub：OAuth **device flow**（`platform.rs` CLIENT_ID 硬编码，勿改）——请求设备码 → 用户浏览器输码授权 → 轮询拿 token
 - Gitee/GitCode：**授权码模式**（两家都不支持 device flow）——`oauth.rs::login_with_browser` 起本地回调服务器 `127.0.0.1:8765`，打印授权 URL 并自动开浏览器，回调捕获 code 换 token。**回调端口必须与注册 OAuth 应用时的 redirect_uri 一致**（`http://127.0.0.1:8765/callback`）；Gitee 的 token 参数全在 form body，GitCode 的 client_secret 在 form body、其余在 query（`oauth.rs::exchange_token` 分支处理）
 - token 持久化**按平台分文件**：`{data_dir}/soil/token_github.txt` / `token_gitee.txt` / `token_gitcode.txt`（Windows: `%APPDATA%\soil\`），启动时 `load_token` + `/user` 验证复用。缓存目录 `{data_dir}/soil/`：`fork/`（本地工作副本）、`token_{平台}.txt`、`config.toml`
+- **注册辅助**：soil 不能替用户创建账号（需邮箱验证/ToS），登录前打印 `Platform::signup_url()`（GitHub `github.com/signup`、Gitee `gitee.com/signup`、GitCode `gitcode.com/register`）；登录失败时 `login_failed_message` 自动打开注册页
+- **Git 缺失自动安装**：`run_submit` 开头 `git::auto_install_git()`——未装时按平台尝试 winget（Windows，可能弹 UAC）/ brew（macOS）/ apt、dnf（Linux，需 sudo），装完刷新 PATH（`prepend_windows_git_to_path`，仅 Windows：winget 装的 git 不在当前进程 PATH）；失败才打印 `print_git_install_guide` 并退出
 - **维护者判定（has_push_permission）三平台不同**：GitHub 用 repo 详情 `permissions.push`；Gitee 用 `/repos/{o}/{r}/collaborators/{username}/permission` 的顶层 `permission` 字符串（"push"/"admin"）——Gitee repo 详情**没有** permissions 字段；GitCode 用 repo 详情 `owner.login` 或 `members` 数组包含该用户名——GitCode 的 `members/{username}` 端点只支持 PUT（更新），不支持 GET
 
 **本地预览**（提交流程末尾）：`submodule_init` 只拉**当前作者**子模块（`git submodule update --init`，用 gitlink 记录的 commit，不加 `--remote`）→ 进程内 `sitegen::run` 构建 → `cmd /c start` 打开 `dist/index.html`。
@@ -93,6 +95,7 @@ CI 门槛顺序：`fmt --check` → `clippy -D warnings` → `test` → `run --c
 - 底部：**仅章节页**有「← 上一章 / 下一章 →」（`.chapter-nav`，首末章用空 `.placeholder` 占位）；独立文章页和文集页底部无任何链接
 - 面包屑保留（首页 / 作者 / 文集 / 章节）
 - 关于页（`about.html`）与投稿页（`submit.html`）内容分别来自 `pages/about.md`、`pages/submit.md`（构建时渲染为 HTML），修改内容直接编辑对应 markdown 文件。`ABOUT_MD`/`SUBMIT_MD` 通过 `include_str!` 嵌入二进制——和 CSS/HTML 壳一样，不读运行时文件。两页均 depth 0，互链用裸文件名（`submit.html`/`about.html`）
+- **代码块一键复制**：`render.rs` 的 `COPY_JS` 内嵌进每个页面（`page()` 模板），纯客户端 JS 给所有 `<pre>` 块包 `.code-block` 并加 `.copy-btn`（剪贴板 API + `file://` 下 `execCommand` 回退），CSS 同文件常量里
 
 ## 陷阱
 

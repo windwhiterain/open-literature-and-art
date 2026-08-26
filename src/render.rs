@@ -59,7 +59,63 @@ img{max-width:100%;height:auto;border-radius:4px}
 #shuffle-btn{font-family:inherit;font-size:1rem;padding:.45rem 1.6rem;border:1px solid var(--border-btn);border-radius:20px;background:var(--bg);color:var(--text);cursor:pointer}
 #shuffle-btn:hover{background:var(--code-bg);border-color:var(--border-btn-hover)}
 @media (prefers-color-scheme: dark){:root{color-scheme:dark;--bg:#121212;--text:#e6e6e6;--text-strong:#fff;--text-secondary:#b8b8b8;--text-tertiary:#a0a0a0;--text-subtle:#8a8a8a;--text-faint:#777;--link:#8ab4f8;--border:#2f2f2f;--border-strong:#3a3a3a;--border-btn:#4a4a4a;--border-btn-hover:#5a5a5a;--card-bg:#1e1e1e;--card-hover-bg:#2a2a2a;--code-bg:#2a2a2a}}
+.code-block{position:relative;margin:1em 0}
+.code-block pre{margin:0;padding-top:2.2em}
+.copy-btn{position:absolute;top:.45rem;right:.45rem;font-family:inherit;font-size:12px;line-height:1;padding:.28rem .6rem;border:1px solid var(--border-btn);border-radius:4px;background:var(--bg);color:var(--text-secondary);cursor:pointer}
+.copy-btn:hover{color:var(--text);border-color:var(--border-btn-hover)}
 "#;
+
+/// Inline script that adds a one-click copy button to every `<pre>` code
+/// block (terminal commands on the submit guide page, etc.). Pure client-side
+/// so every page gets it with no build-time HTML surgery; clipboard API with
+/// a textarea fallback for `file://` (non-secure) contexts.
+const COPY_JS: &str = r#"<script>
+(function () {
+  function copyText(text, done) {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(
+        function () { done(true); },
+        function () { done(false); }
+      );
+      return;
+    }
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    done(ok);
+  }
+  var pres = document.querySelectorAll('pre');
+  for (var i = 0; i < pres.length; i++) {
+    var pre = pres[i];
+    if (pre.parentNode && pre.parentNode.className === 'code-block') { continue; }
+    var wrap = document.createElement('div');
+    wrap.className = 'code-block';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy-btn';
+    btn.textContent = '复制';
+    btn.setAttribute('aria-label', '复制代码');
+    wrap.appendChild(btn);
+    btn.addEventListener('click', function () {
+      var code = this.parentNode.querySelector('code');
+      var text = code ? code.innerText : '';
+      var self = this;
+      copyText(text, function (ok) {
+        self.textContent = ok ? '已复制' : '复制失败';
+        setTimeout(function () { self.textContent = '复制'; }, 1500);
+      });
+    });
+  }
+})();
+</script>"#;
 
 /// Generate all pages and return a list of (path, content) pairs
 pub fn render_site(site: &Site) -> Vec<(String, String)> {
@@ -308,9 +364,11 @@ fn page(
 <main>
 {body_html}
 </main>
+{copy_js}
 </body>
 </html>"#,
         desc_meta = desc_meta,
+        copy_js = COPY_JS,
     )
 }
 

@@ -119,6 +119,17 @@ impl Platform {
             Platform::GitCode => ("whiting", "open-literature-and-art"),
         }
     }
+
+    /// Account registration page, shown/opened for users who have no
+    /// account yet (soil cannot create accounts — signup needs email
+    /// verification and ToS acceptance — so it points the user there).
+    pub fn signup_url(self) -> &'static str {
+        match self {
+            Platform::Github => "https://github.com/signup",
+            Platform::Gitee => "https://gitee.com/signup",
+            Platform::GitCode => "https://gitcode.com/register",
+        }
+    }
 }
 
 /// Path of the token file for a platform inside the cache dir.
@@ -313,6 +324,16 @@ mod tests {
         assert_eq!(
             Platform::GitCode.upstream(),
             ("whiting", "open-literature-and-art")
+        );
+    }
+
+    #[test]
+    fn signup_urls() {
+        assert_eq!(Platform::Github.signup_url(), "https://github.com/signup");
+        assert_eq!(Platform::Gitee.signup_url(), "https://gitee.com/signup");
+        assert_eq!(
+            Platform::GitCode.signup_url(),
+            "https://gitcode.com/register"
         );
     }
 }
