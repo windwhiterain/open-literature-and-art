@@ -52,24 +52,23 @@ jobs:
       - name: Check soil compiles
         run: cargo build -p soil --release
 
-      # 国内镜像：把构建产物同步到腾讯云 COS 静态网站托管（纯国内、全自动）。
-      # 前提（一次性，需你在腾讯云完成）：建好「公有读私有写」的存储桶 → 基础配置/静态网站
-      # 开启、索引文档填 index.html → 绑定「静态网站源站」类型的已备案自定义域名。
-      # 凭据放仓库 secrets（勿明文写入 workflow）：TENCENT_CLOUD_SECRET_ID / TENCENT_CLOUD_SECRET_KEY
-      # / COS_BUCKET(形如 name-appid) / COS_REGION(如 ap-guangzhou)。
-      # clean: true = 删除 COS 里本地已不存在的文件（真正的镜像同步）。
+      # 国内镜像：把构建产物部署到腾讯云 EdgeOne Pages（免费版每月 50GB 流量+300 万次请求）。
+      # 全自动：npx edgeone pages deploy 把 dist/ 上传到 EdgeOne 项目。
+      # 前提（一次性，需你在 EdgeOne 控制台完成）：注册 → 拿 API Token → （部署时 -n 自动建项目）
+      # → 项目域名管理/自定义域名绑定 open-literature-and-art.top（大陆/全球可用区需 工信部备案，你已接受）
+      # → 配置 DNS CNAME。默认项目域名在中国大陆仅 3 小时预览链接，稳定访问必须用自定义域名→所以绑备案域名。
+      # token 放 repo secret EDGEONE_API_TOKEN（勿明文写入 workflow）。
       # best-effort：失败只标记该步骤，不阻断 GitHub Pages 部署（continue-on-error）。
-      - name: Deploy to Tencent Cloud COS (国内镜像)
-        continue-on-error: true
-        uses: TencentCloud/cos-action@v1
+      - name: Setup Node.js (for EdgeOne CLI)
+        uses: actions/setup-node@v4
         with:
-          secret_id: ${{ secrets.TENCENT_CLOUD_SECRET_ID }}
-          secret_key: ${{ secrets.TENCENT_CLOUD_SECRET_KEY }}
-          cos_bucket: ${{ secrets.COS_BUCKET }}
-          cos_region: ${{ secrets.COS_REGION }}
-          local_path: dist
-          remote_path: /
-          clean: true
+          node-version: "22"
+
+      - name: Deploy to EdgeOne Pages (国内镜像)
+        continue-on-error: true
+        run: npx -y edgeone pages deploy ./dist -n open-literature-and-art -t ${{ secrets.EDGEONE_API_TOKEN }}
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
